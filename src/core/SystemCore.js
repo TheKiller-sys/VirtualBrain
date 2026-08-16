@@ -711,3 +711,5 @@ export class SystemCore {
 }
 
 export const systemCore = new SystemCore();
+export const brain = systemCore;
+
