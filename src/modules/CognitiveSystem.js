@@ -1,5 +1,5 @@
 // src/modules/CognitiveSystem.js
-import { brain } from '../core/SystemCore.js';
+import { systemCore } from '../core/SystemCore.js';
 
 export class CognitiveSystem {
     constructor() {
@@ -19,116 +19,114 @@ export class CognitiveSystem {
         this.thoughtHistory = [];
         this.insightMoments = [];
         this.creativeSpikes = 0;
+        this.cognitiveProfile = {};
     }
 
     async initialize(characterConfig) {
-        this.config = characterConfig;
+        // ✅ Asegurar que characterConfig existe
+        this.config = characterConfig || { genotipo: 'humano' };
         this.setupCognitiveProfile();
         this.initializeState();
         this.setupCognitiveProcesses();
         this.setupGoalSystem();
-        console.log('🧠 Sistema cognitivo V3.0 inicializado');
+        systemCore.logSystem('Sistema cognitivo V3.0 inicializado');
     }
 
     setupCognitiveProfile() {
-        // Perfil cognitivo humano realista
-        const baseProfile = {
-            attentionCapacity: 1.0,
-            memoryEfficiency: 1.0,
-            problemSolving: 1.0,
-            decisionMaking: 1.0,
-            learningRate: 1.0,
-            cognitiveFlexibility: 1.0,
-            creativityBaseline: 1.0,
-            processingSpeed: 1.0
-        };
-
+        // ✅ Usar genotipo con valor por defecto
+        const genotipo = this.config?.genotipo || 'humano';
+        
         const profiles = {
-            humano: baseProfile,
-            intelectual: {
-                ...baseProfile,
-                attentionCapacity: 1.3,
-                memoryEfficiency: 1.4,
-                problemSolving: 1.5,
+            humano: {
+                attentionCapacity: 1.0,
+                memoryEfficiency: 1.0,
+                problemSolving: 1.0,
+                decisionMaking: 1.0,
+                learningRate: 1.0,
+                cognitiveFlexibility: 1.0,
+                creativityBaseline: 1.0,
+                processingSpeed: 1.0
+            },
+            resiliente: {
+                attentionCapacity: 1.1,
+                memoryEfficiency: 1.2,
+                problemSolving: 1.1,
                 decisionMaking: 1.2,
-                learningRate: 1.3,
-                cognitiveFlexibility: 1.2
-            },
-            creativo: {
-                ...baseProfile,
-                creativityBaseline: 1.5,
-                cognitiveFlexibility: 1.4,
-                problemSolving: 1.2,
-                decisionMaking: 0.9
-            },
-            estratega: {
-                ...baseProfile,
-                decisionMaking: 1.4,
-                problemSolving: 1.3,
-                planning: 1.5,
+                learningRate: 1.1,
                 cognitiveFlexibility: 1.1
             },
-            perceptivo: {
-                ...baseProfile,
+            vulnerable: {
+                attentionCapacity: 0.8,
+                memoryEfficiency: 0.7,
+                problemSolving: 0.8,
+                decisionMaking: 0.7,
+                learningRate: 0.9,
+                cognitiveFlexibility: 0.7
+            },
+            audaz: {
+                attentionCapacity: 1.3,
+                memoryEfficiency: 1.0,
+                problemSolving: 1.2,
+                decisionMaking: 1.4,
+                learningRate: 1.0,
+                cognitiveFlexibility: 1.3,
+                riskTaking: 1.5
+            },
+            intelectual: {
                 attentionCapacity: 1.4,
-                processingSpeed: 1.3,
-                memoryEfficiency: 1.2
+                memoryEfficiency: 1.5,
+                problemSolving: 1.6,
+                decisionMaking: 1.3,
+                learningRate: 1.4,
+                cognitiveFlexibility: 1.2,
+                analyticalThinking: 1.5
+            },
+            social: {
+                attentionCapacity: 1.1,
+                memoryEfficiency: 1.3,
+                problemSolving: 1.0,
+                decisionMaking: 1.1,
+                learningRate: 1.2,
+                cognitiveFlexibility: 1.0,
+                socialCognition: 1.6
             }
         };
 
-        this.cognitiveProfile = profiles[this.config.genotipo] || profiles.humano;
+        this.cognitiveProfile = profiles[genotipo] || profiles.humano;
     }
 
     initializeState() {
         this.state = {
-            // Capacidades cognitivas básicas
             atencion: 80,
             concentracion: 75,
             memoriaTrabajo: 70,
             velocidadProcesamiento: 65,
-            
-            // Funciones ejecutivas
             razonamiento: 70,
             tomaDecisiones: 75,
             planificacion: 65,
             flexibilidad: 60,
             inhibicion: 70,
-            
-            // Memoria
             memoriaCortoPlazo: 75,
             memoriaLargoPlazo: 80,
             memoriaProcedural: 70,
-            
-            // Aprendizaje
             aprendizaje: 70,
             retencion: 75,
             transferencia: 60,
-            
-            // Metacognición
             autoconciencia: 65,
             monitoreo: 70,
             regulacion: 60,
-            
-            // Estados cognitivos
             fatiga: 20,
             estres: 25,
             carga: 30,
             fluidez: 65,
-            
-            // Capacidades avanzadas
             curiosidad: 50,
             creatividad: 40,
             intuicion: 45,
             sabiduria: 30,
-            insight: 20,
-            
-            // Dimensiones cognitivas
             complejidad: 0.5,
             eficiencia: 0.7,
             adaptabilidad: 0.6,
             profundidad: 0.5,
-            
-            // Estados cognitivos especiales
             flow: 0,
             bloqueo: 0,
             iluminacion: 0,
@@ -143,7 +141,7 @@ export class CognitiveSystem {
         this.thoughtHistory = [];
         this.insightMoments = [];
         this.creativeSpikes = 0;
-        this.lastUpdateTime = brain.systemTime || 0;
+        this.lastUpdateTime = systemCore.systemTime || Date.now();
     }
 
     setupCognitiveProcesses() {
@@ -268,48 +266,29 @@ export class CognitiveSystem {
     }
 
     update(input, deltaTime) {
-        this.lastUpdateTime = brain.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime || Date.now();
         
         if (!input || !input.biochemical || !input.emotional) return this.getState();
 
-        // 1. Calcular capacidades basales
         this.calculateBasalCapacities(input.biochemical);
-        
-        // 2. Aplicar influencias emocionales
         this.applyEmotionalInfluences(input.emotional, deltaTime);
         
-        // 3. Aplicar influencias de personalidad
         if (input.personality) {
             this.applyPersonalityInfluence(input.personality, deltaTime);
         }
         
-        // 4. Actualizar procesos cognitivos
         this.updateCognitiveProcesses(deltaTime);
-        
-        // 5. Gestionar carga cognitiva
         this.manageCognitiveLoad(deltaTime);
-        
-        // 6. Procesar metas y planificación
         this.processGoalsAndPlanning(input, deltaTime);
         
-        // 7. Procesar toma de decisiones
         if (this.currentPlan) {
             this.executePlan(this.currentPlan, deltaTime);
         }
         
-        // 8. Procesar creatividad e insight
         this.processCreativityAndInsight(deltaTime);
-        
-        // 9. Actualizar metacognición
         this.updateMetacognition(deltaTime);
-        
-        // 10. Actualizar curiosidad
         this.updateCuriosity(input, deltaTime);
-        
-        // 11. Procesar pensamientos
         this.processThoughts(deltaTime);
-        
-        // 12. Aplicar homeostasis cognitiva
         this.applyCognitiveHomeostasis(deltaTime);
 
         return this.getState();
@@ -339,7 +318,6 @@ export class CognitiveSystem {
             serotonina: (bioState.serotonina || 50) / 100
         };
 
-        // Efecto de hidratación
         if (bioState.estadoHidratacion < 30) {
             modificationFactors.energia *= 0.8;
             modificationFactors.atencion *= 0.7;
@@ -502,7 +480,6 @@ export class CognitiveSystem {
             });
         });
 
-        // Estado de flow (fluir)
         const challenge = this.state.carga || 30;
         const skill = (this.state.atencion + this.state.concentracion) / 2;
         if (challenge > 40 && skill > 40 && Math.abs(challenge - skill) < 15) {
@@ -517,7 +494,6 @@ export class CognitiveSystem {
         
         const traits = personality.traits || {};
         
-        // Apertura → creatividad y curiosidad
         if (traits.openness) {
             const openFactor = (traits.openness - 0.5) * 2;
             this.state.creatividad += openFactor * 3 * deltaTime;
@@ -526,7 +502,6 @@ export class CognitiveSystem {
             this.state.insight += openFactor * 0.05 * deltaTime;
         }
         
-        // Conciencia → planificación y concentración
         if (traits.conscientiousness) {
             const consFactor = (traits.conscientiousness - 0.5) * 2;
             this.state.planificacion += consFactor * 4 * deltaTime;
@@ -534,7 +509,6 @@ export class CognitiveSystem {
             this.state.profundidad += consFactor * 0.08 * deltaTime;
         }
         
-        // Extraversión → velocidad de procesamiento
         if (traits.extraversion) {
             const extraFactor = (traits.extraversion - 0.5) * 2;
             this.state.velocidadProcesamiento += extraFactor * 3 * deltaTime;
@@ -542,7 +516,6 @@ export class CognitiveSystem {
             this.state.tomaDecisiones += extraFactor * 1.5 * deltaTime;
         }
         
-        // Neuroticismo → inhibición y estrés
         if (traits.neuroticism) {
             const neuroFactor = (traits.neuroticism - 0.5) * 2;
             this.state.inhibicion += neuroFactor * 2 * deltaTime;
@@ -551,7 +524,6 @@ export class CognitiveSystem {
             this.state.duda += neuroFactor * 2 * deltaTime;
         }
         
-        // Amabilidad → toma de decisiones social
         if (traits.agreeableness) {
             const agreeFactor = (traits.agreeableness - 0.5) * 2;
             this.state.tomaDecisiones += agreeFactor * 2 * deltaTime;
@@ -612,18 +584,15 @@ export class CognitiveSystem {
             this.state.bloqueo += (this.cognitiveLoad - 70) * 0.05 * deltaTime;
         }
         
-        // Descanso natural
         this.state.fatiga = Math.max(0, (this.state.fatiga || 0) - 0.4 * deltaTime);
         this.state.estres = Math.max(0, (this.state.estres || 0) - 0.2 * deltaTime);
         this.state.bloqueo = Math.max(0, (this.state.bloqueo || 0) - 0.1 * deltaTime);
         
-        // Fluidez
         const fluencyBase = ((this.state.atencion || 0) + (this.state.concentracion || 0)) / 2;
         const fluencyReduction = ((this.state.fatiga || 0) + (this.state.estres || 0)) / 2;
         this.state.fluidez = Math.max(0, fluencyBase - fluencyReduction);
         this.state.fluidez = this.clamp(this.state.fluidez, 0, 100);
         
-        // Eficiencia cognitiva
         const efficiencyFactors = {
             atencion: (this.state.atencion || 0) / 100,
             concentracion: (this.state.concentracion || 0) / 100,
@@ -635,25 +604,21 @@ export class CognitiveSystem {
     }
 
     processGoalsAndPlanning(input, deltaTime) {
-        // Actualizar prioridad de metas
         this.goals.forEach(goal => {
             goal.priority = this.calculateGoalPriority(goal, input);
         });
         
-        // Seleccionar meta actual
         const sortedGoals = [...this.goals].sort((a, b) => b.priority - a.priority);
         if (sortedGoals.length > 0) {
             this.currentGoal = sortedGoals[0];
         }
         
-        // Generar plan
         if (!this.currentPlan || this.currentPlan.completed) {
             if (this.currentGoal) {
                 this.currentPlan = this.generatePlan(this.currentGoal, input);
             }
         }
         
-        // Actualizar plan actual
         if (this.currentPlan && !this.currentPlan.completed) {
             this.currentPlan.progress += this.calculatePlanProgress(this.currentPlan, deltaTime);
             this.currentPlan.progress = this.clamp(this.currentPlan.progress, 0, 100);
@@ -847,7 +812,6 @@ export class CognitiveSystem {
     }
 
     processCreativityAndInsight(deltaTime) {
-        // Factores que influyen en creatividad
         const relaxation = 1 - (this.state.estres || 0) / 100;
         const openness = (this.state.flexibilidad || 50) / 100;
         const energy = (this.state.atencion || 50) / 100;
@@ -855,7 +819,6 @@ export class CognitiveSystem {
         
         const creativityFactor = (relaxation * 0.3 + openness * 0.3 + energy * 0.2 + flowState * 0.2);
         
-        // Generación de ideas creativas
         if (Math.random() < 0.01 * creativityFactor * deltaTime) {
             this.state.creatividad = Math.min(100, (this.state.creatividad || 0) + 2);
             this.creativeSpikes++;
@@ -866,7 +829,6 @@ export class CognitiveSystem {
             });
         }
         
-        // Insight (momentos de iluminación)
         if (Math.random() < 0.005 * (this.state.intuicion || 0) / 100 * deltaTime) {
             const insightIntensity = 0.3 + Math.random() * 0.7;
             this.insightMoments.push({
@@ -884,14 +846,14 @@ export class CognitiveSystem {
             });
         }
         
-        // Decaimiento natural
         this.state.creatividad = Math.max(0, (this.state.creatividad || 0) - 0.5 * deltaTime);
         this.state.insight = Math.max(0, (this.state.insight || 0) - 0.3 * deltaTime);
         this.state.iluminacion = Math.max(0, (this.state.iluminacion || 0) - 0.5 * deltaTime);
     }
 
     processThoughts(deltaTime) {
-        const consciousness = brain.consciousnessState?.level || 0;
+        // ✅ Usar systemCore en lugar de brain
+        const consciousness = systemCore.systemState?.consciousnessLevel || 0;
         if (consciousness < 0.15) return;
         
         const thoughtTypes = ['consciente', 'subconsciente', 'asociativo', 'creativo', 'reflexivo', 'intuitivo'];
@@ -902,7 +864,8 @@ export class CognitiveSystem {
             const intensidad = 0.2 + Math.random() * 0.6;
             
             let contenido = '';
-            const dominantEmotion = brain.modules.get('emotional')?.getState()?.dominante || 'neutral';
+            const emotionalModule = systemCore.modules.get('emotional');
+            const dominantEmotion = emotionalModule?.getState()?.dominante || 'neutral';
             
             switch(type) {
                 case 'consciente':
@@ -959,7 +922,6 @@ export class CognitiveSystem {
         this.state.regulacion = ((this.state.autoconciencia || 0) + (this.state.monitoreo || 0)) / 2;
         this.state.regulacion = this.clamp(this.state.regulacion, 0, 100);
         
-        // Profundidad de procesamiento
         const depthFactors = {
             atencion: (this.state.atencion || 0) / 100,
             concentracion: (this.state.concentracion || 0) / 100,
@@ -969,7 +931,6 @@ export class CognitiveSystem {
         this.state.profundidad = Object.values(depthFactors).reduce((a, b) => a + b, 0) / 4;
         this.state.profundidad = this.clamp(this.state.profundidad, 0, 1);
         
-        // Adaptabilidad
         const adaptabilityFactors = {
             flexibilidad: (this.state.flexibilidad || 0) / 100,
             aprendizaje: (this.state.aprendizaje || 0) / 100,
@@ -979,7 +940,6 @@ export class CognitiveSystem {
         this.state.adaptabilidad = Object.values(adaptabilityFactors).reduce((a, b) => a + b, 0) / 4;
         this.state.adaptabilidad = this.clamp(this.state.adaptabilidad, 0, 1);
         
-        // Duda cognitiva (sana)
         this.state.duda = Math.max(0, this.state.duda - 0.5 * deltaTime);
         if (this.state.complejidad > 0.6 && this.state.autoconciencia > 60) {
             this.state.duda += 0.2 * deltaTime;
@@ -1050,7 +1010,7 @@ export class CognitiveSystem {
             }
         });
 
-        const recoveryRate = (this.cognitiveProfile.learningRate || 1.0) * 0.08 * deltaTime;
+        const recoveryRate = (this.cognitiveProfile?.learningRate || 1.0) * 0.08 * deltaTime;
         this.state.fatiga = Math.max(0, (this.state.fatiga || 0) - recoveryRate * 5);
         this.state.estres = Math.max(0, (this.state.estres || 0) - recoveryRate * 3);
         
@@ -1082,7 +1042,6 @@ export class CognitiveSystem {
             return this.evaluateOption(option, decisionMetrics, context);
         });
 
-        // Aplicar duda (reduce confianza en decisiones complejas)
         const doubtFactor = 1 - decisionMetrics.doubt * 0.5;
         
         const bestOption = processedOptions.reduce((best, current) => {
@@ -1143,7 +1102,7 @@ export class CognitiveSystem {
 
     getRiskTolerance() {
         const baseTolerance = 0.5;
-        const profileEffect = this.cognitiveProfile.riskTaking || 1.0;
+        const profileEffect = this.cognitiveProfile?.riskTaking || 1.0;
         const emotionalEffect = ((this.state.confianza || 50) / 100 - 0.5) * 0.3;
         const stressEffect = -((this.state.estres || 0) / 500);
         
@@ -1276,18 +1235,6 @@ export class CognitiveSystem {
             type: 'cognitive_emergency',
             state: { ...this.state }
         });
-        
-        console.log('🚨 Protocolo de emergencia cognitivo activado');
-    }
-
-    restoreAfterEmergency() {
-        this.applyModulation({
-            estabilidad: 20,
-            fluidez: 15,
-            autoconciencia: 15,
-            curiosidad: 10
-        });
-        console.log('✅ Sistema cognitivo restaurado después de emergencia');
     }
 
     applyModulation(modulation) {
@@ -1364,7 +1311,6 @@ export class CognitiveSystem {
         this.thoughtHistory = [];
         this.insightMoments = [];
         this.creativeSpikes = 0;
-        console.log('🔄 Sistema cognitivo reiniciado');
     }
 
     exportData() {
@@ -1383,4 +1329,4 @@ export class CognitiveSystem {
     }
 }
 
-brain.registerModule('cognitive', new CognitiveSystem());
+systemCore.registerModule('cognitive', new CognitiveSystem());
