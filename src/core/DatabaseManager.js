@@ -71,6 +71,41 @@ export class DatabaseManager {
         }
     }
 
+    startAutoBackup() {
+        const interval = parseInt(process.env.DB_BACKUP_INTERVAL) || 3600000;
+        this.backupInterval = setInterval(() => {
+            this.createBackup();
+        }, interval);
+    }
+
+    async createBackup() {
+        try {
+            const backupDir = path.join(__dirname, '../../database/backups');
+            if (!fs.existsSync(backupDir)) {
+                fs.mkdirSync(backupDir, { recursive: true });
+            }
+            
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const backupPath = path.join(backupDir, `cerebro_${timestamp}.db`);
+            
+            await this.db.exec(`VACUUM INTO '${backupPath}'`);
+            
+            // Limpiar backups antiguos
+            const backups = fs.readdirSync(backupDir)
+                .filter(f => f.startsWith('cerebro_'))
+                .sort();
+            
+            while (backups.length > 10) {
+                const old = backups.shift();
+                fs.unlinkSync(path.join(backupDir, old));
+            }
+            
+            console.log(`💾 Backup creado: ${path.basename(backupPath)}`);
+        } catch (error) {
+            console.error('❌ Error creando backup:', error);
+        }
+    }
+
     // ============ CREACIÓN DE TABLAS ============
 
     async createAllTables() {
@@ -1612,6 +1647,16 @@ export class DatabaseManager {
 
     // ============ CONSULTAS AVANZADAS ============
 
+    async getState(table) {
+        const query = `SELECT * FROM ${table} ORDER BY timestamp DESC LIMIT 1`;
+        return this.db.get(query);
+    }
+
+    async getStateHistory(table, limit = 100) {
+        const query = `SELECT * FROM ${table} ORDER BY timestamp DESC LIMIT ?`;
+        return this.db.all(query, limit);
+    }
+
     async getLatest(table, limit = 1) {
         const cacheKey = `${table}_latest_${limit}`;
         if (this.cache.has(cacheKey)) {
@@ -1677,383 +1722,7 @@ export class DatabaseManager {
         return this.db.all(searchQuery, [`%${query}%`, `%${query}%`, limit]);
     }
 
-    async getEmotionalTrends(period = 'day') {
-        const periodMap = {
-            'hour': 3600000,
-            'day': 86400000,
-            'week': 604800000,
-            'month': 2592000000
-        };
-        const interval = periodMap[period] || 86400000;
-        const since = Date.now() - interval;
-
-        const query = `
-            SELECT 
-                timestamp,
-                alegria,
-                tristeza,
-                miedo,
-                ira,
-                confianza,
-                ansiedad,
-                bienestar,
-                (alegria + confianza) as emociones_positivas,
-                (tristeza + miedo + ira) as emociones_negativas,
-                CASE 
-                    WHEN (alegria + confianza) > (tristeza + miedo + ira) THEN 'positivo'
-                    ELSE 'negativo'
-                END as tendencia_emocional
-            FROM emociones_estados
-            WHERE timestamp > ?
-            ORDER BY timestamp ASC
-        `;
-        return this.db.all(query, since);
-    }
-
-    async getCognitivePerformance() {
-        const query = `
-            SELECT 
-                timestamp,
-                atencion,
-                concentracion,
-                razonamiento,
-                toma_decisiones,
-                (atencion + concentracion + razonamiento + toma_decisiones) / 4 as rendimiento_cognitivo,
-                fatiga,
-                carga,
-                CASE 
-                    WHEN (atencion + concentracion + razonamiento) / 3 > 70 THEN 'alto'
-                    WHEN (atencion + concentracion + razonamiento) / 3 > 50 THEN 'medio'
-                    ELSE 'bajo'
-                END as nivel_cognitivo
-            FROM cognitivo_estados
-            ORDER BY timestamp DESC
-            LIMIT 100
-        `;
-        return this.db.all(query);
-    }
-
-    async getPersonalityEvolution() {
-        const query = `
-            SELECT 
-                timestamp,
-                apertura,
-                conciencia,
-                extraversion,
-                amabilidad,
-                neuroticismo,
-                (apertura + conciencia + extraversion + amabilidad + (1 - neuroticismo)) / 5 as salud_personalidad
-            FROM personalidad_rasgos
-            ORDER BY timestamp ASC
-        `;
-        return this.db.all(query);
-    }
-
-    async getSystemHealthReport() {
-        const query = `
-            SELECT 
-                s.estabilidad,
-                s.rendimiento,
-                s.nivel_consciencia,
-                e.bienestar,
-                e.ansiedad,
-                b.oxigeno,
-                b.energia,
-                b.cortisol,
-                c.atencion,
-                c.carga,
-                p.apertura,
-                p.conciencia,
-                (s.estabilidad + s.rendimiento + s.nivel_consciencia + e.bienestar/100) / 4 as salud_general,
-                CASE 
-                    WHEN s.estabilidad > 0.7 AND e.bienestar > 50 THEN 'EXCELENTE'
-                    WHEN s.estabilidad > 0.5 AND e.bienestar > 30 THEN 'BUENO'
-                    WHEN s.estabilidad > 0.3 AND e.bienestar > 20 THEN 'REGULAR'
-                    ELSE 'CRÍTICO'
-                END as estado_general
-            FROM sistema_estados s
-            LEFT JOIN emociones_estados e ON s.timestamp = e.timestamp
-            LEFT JOIN bioquimica_estados b ON s.timestamp = b.timestamp
-            LEFT JOIN cognitivo_estados c ON s.timestamp = c.timestamp
-            LEFT JOIN personalidad_rasgos p ON s.timestamp = p.timestamp
-            ORDER BY s.timestamp DESC
-            LIMIT 1
-        `;
-        return this.db.get(query);
-    }
-
-    async getMemoryStatistics() {
-        const query = `
-            SELECT 
-                COUNT(*) as total_memorias,
-                SUM(CASE WHEN consolidada = 1 THEN 1 ELSE 0 END) as consolidadas,
-                AVG(fuerza) as fuerza_promedio,
-                AVG(importancia) as importancia_promedio,
-                MAX(fuerza) as fuerza_maxima,
-                MIN(fuerza) as fuerza_minima,
-                AVG(accesos) as accesos_promedio,
-                COUNT(DISTINCT emocion_asociada) as emociones_distintas,
-                GROUP_CONCAT(DISTINCT emocion_asociada) as emociones_presentes
-            FROM memoria_episodica
-        `;
-        return this.db.get(query);
-    }
-
-    async getPatternAnalysis() {
-        const query = `
-            SELECT 
-                tipo,
-                COUNT(*) as frecuencia,
-                AVG(confianza) as confianza_promedio,
-                MAX(timestamp) as ultima_deteccion,
-                MIN(timestamp) as primera_deteccion
-            FROM patrones_detectados
-            GROUP BY tipo
-            ORDER BY frecuencia DESC
-        `;
-        return this.db.all(query);
-    }
-
-    async getNetworkMetrics() {
-        const query = `
-            SELECT 
-                COUNT(*) as total_neuronas,
-                AVG(activacion) as activacion_promedio,
-                AVG(umbral) as umbral_promedio,
-                COUNT(DISTINCT tipo) as tipos_neuronas,
-                (SELECT COUNT(*) FROM redes_conexiones) as total_conexiones,
-                (SELECT AVG(peso) FROM redes_conexiones) as peso_promedio
-            FROM redes_neuronas
-        `;
-        return this.db.get(query);
-    }
-
     // ============ ANÁLISIS DE DATOS ============
-
-    async analyzeTrends(variable, period = 'hour') {
-        const periodMap = {
-            'hour': 3600000,
-            'day': 86400000,
-            'week': 604800000,
-            'month': 2592000000
-        };
-        const interval = periodMap[period] || 86400000;
-        const since = Date.now() - interval;
-
-        // Determinar tabla y columna
-        const tableMap = {
-            'oxigeno': 'bioquimica_estados',
-            'energia': 'bioquimica_estados',
-            'alegria': 'emociones_estados',
-            'tristeza': 'emociones_estados',
-            'miedo': 'emociones_estados',
-            'ira': 'emociones_estados',
-            'atencion': 'cognitivo_estados',
-            'concentracion': 'cognitivo_estados',
-            'estabilidad': 'sistema_estados',
-            'nivel_consciencia': 'sistema_estados'
-        };
-
-        const table = tableMap[variable];
-        if (!table) throw new Error(`Variable ${variable} no encontrada`);
-
-        const query = `
-            SELECT 
-                timestamp,
-                ${variable} as valor,
-                AVG(${variable}) OVER (ORDER BY timestamp ROWS BETWEEN 5 PRECEDING AND 5 FOLLOWING) as media_movil,
-                ${variable} - AVG(${variable}) OVER (ORDER BY timestamp ROWS BETWEEN 5 PRECEDING AND 5 FOLLOWING) as desviacion,
-                CASE 
-                    WHEN ${variable} > AVG(${variable}) OVER (ORDER BY timestamp ROWS BETWEEN 5 PRECEDING AND 5 FOLLOWING) * 1.2 THEN 'ALZA'
-                    WHEN ${variable} < AVG(${variable}) OVER (ORDER BY timestamp ROWS BETWEEN 5 PRECEDING AND 5 FOLLOWING) * 0.8 THEN 'BAJA'
-                    ELSE 'ESTABLE'
-                END as tendencia
-            FROM ${table}
-            WHERE timestamp > ?
-            ORDER BY timestamp ASC
-        `;
-
-        return this.db.all(query, since);
-    }
-
-    async findCorrelations(variable1, variable2, period = 'day') {
-        const periodMap = {
-            'day': 86400000,
-            'week': 604800000,
-            'month': 2592000000
-        };
-        const interval = periodMap[period] || 86400000;
-        const since = Date.now() - interval;
-
-        const query = `
-            WITH datos AS (
-                SELECT 
-                    a.timestamp,
-                    a.${variable1} as v1,
-                    b.${variable2} as v2
-                FROM bioquimica_estados a
-                JOIN emociones_estados b ON a.timestamp = b.timestamp
-                WHERE a.timestamp > ?
-                AND b.timestamp > ?
-            )
-            SELECT 
-                CORR(v1, v2) as correlacion,
-                COUNT(*) as muestras,
-                AVG(v1) as media_v1,
-                AVG(v2) as media_v2,
-                STDDEV(v1) as std_v1,
-                STDDEV(v2) as std_v2
-            FROM datos
-        `;
-
-        return this.db.get(query, [since, since]);
-    }
-
-    async detectAnomalies(threshold = 2.5) {
-        const query = `
-            WITH stats AS (
-                SELECT 
-                    variable,
-                    AVG(valor) as media,
-                    STDDEV(valor) as desviacion
-                FROM analisis_anomalias
-                GROUP BY variable
-            )
-            SELECT 
-                a.*,
-                s.media,
-                s.desviacion,
-                (a.valor - s.media) / s.desviacion as z_score,
-                CASE 
-                    WHEN ABS((a.valor - s.media) / s.desviacion) > ? THEN 'CRÍTICA'
-                    WHEN ABS((a.valor - s.media) / s.desviacion) > 2 THEN 'ALTA'
-                    WHEN ABS((a.valor - s.media) / s.desviacion) > 1.5 THEN 'MEDIA'
-                    ELSE 'BAJA'
-                END as severidad
-            FROM analisis_anomalias a
-            JOIN stats s ON a.variable = s.variable
-            WHERE a.timestamp > ?
-            ORDER BY a.timestamp DESC
-        `;
-
-        const since = Date.now() - 86400000 * 7; // Última semana
-        return this.db.all(query, [threshold, since]);
-    }
-
-    async predictFuture(variable, horizon = 10) {
-        // Análisis de series temporales para predicción
-        const query = `
-            WITH datos AS (
-                SELECT 
-                    timestamp,
-                    ${variable} as valor,
-                    ROW_NUMBER() OVER (ORDER BY timestamp) as idx
-                FROM bioquimica_estados
-                WHERE ${variable} IS NOT NULL
-                ORDER BY timestamp DESC
-                LIMIT 100
-            ),
-            tendencia AS (
-                SELECT 
-                    AVG(valor) as media,
-                    AVG(idx) as media_idx,
-                    (SUM(idx * valor) - SUM(idx) * SUM(valor) / COUNT(*)) / 
-                    (SUM(idx * idx) - SUM(idx) * SUM(idx) / COUNT(*)) as pendiente
-                FROM datos
-            )
-            SELECT 
-                media + pendiente * (idx + ?) as prediccion,
-                media,
-                pendiente,
-                COUNT(*) as muestras
-            FROM datos, tendencia
-            GROUP BY idx
-            ORDER BY idx DESC
-            LIMIT 1
-        `;
-
-        return this.db.get(query, [horizon]);
-    }
-
-    // ============ MANTENIMIENTO ============
-
-    async cleanup() {
-        const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
-        
-        const tables = [
-            'sistema_estados', 'sistema_metricas', 'sistema_eventos',
-            'bioquimica_estados', 'bioquimica_neurotransmisores', 
-            'bioquimica_hormonas', 'bioquimica_signos_vitales',
-            'emociones_estados', 'emociones_dimensiones', 'emociones_historico',
-            'cognitivo_estados', 'cognitivo_procesos', 'cognitivo_pensamientos',
-            'motor_estados', 'motor_acciones',
-            'social_interacciones'
-        ];
-
-        for (const table of tables) {
-            await this.db.run(`DELETE FROM ${table} WHERE timestamp < ?`, thirtyDaysAgo);
-        }
-
-        // Mantener solo las 50000 memorias más importantes
-        await this.db.run(`
-            DELETE FROM memoria_episodica 
-            WHERE id NOT IN (
-                SELECT id FROM memoria_episodica 
-                ORDER BY importancia DESC, fuerza DESC 
-                LIMIT 50000
-            )
-        `);
-
-        // Mantener solo 10000 pensamientos
-        await this.db.run(`
-            DELETE FROM cognitivo_pensamientos 
-            WHERE id NOT IN (
-                SELECT id FROM cognitivo_pensamientos 
-                ORDER BY timestamp DESC 
-                LIMIT 10000
-            )
-        `);
-
-        await this.db.exec('VACUUM');
-        this.cache.clear();
-        console.log('🗄️ Limpieza y optimización completadas');
-    }
-
-    async getMetrics() {
-        return {
-            ...this.metrics,
-            cacheSize: this.cache.size,
-            isInitialized: this.isInitialized,
-            databaseSize: (await this.db.get('SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()'))?.size || 0,
-            tableCount: (await this.db.get('SELECT COUNT(*) as count FROM sqlite_master WHERE type="table"')).count,
-            viewCount: (await this.db.get('SELECT COUNT(*) as count FROM sqlite_master WHERE type="view"')).count,
-            triggerCount: (await this.db.get('SELECT COUNT(*) as count FROM sqlite_master WHERE type="trigger"')).count,
-            indexCount: (await this.db.get('SELECT COUNT(*) as count FROM sqlite_master WHERE type="index"')).count
-        };
-    }
-
-    async close() {
-        if (this.backupInterval) {
-            clearInterval(this.backupInterval);
-        }
-        if (this.db) {
-            await this.db.close();
-            this.isInitialized = false;
-        }
-    }
-    }
-
-// ============ CONSULTAS AVANZADAS ============
-
-    async getState(table) {
-        const query = `SELECT * FROM ${table} ORDER BY timestamp DESC LIMIT 1`;
-        return this.db.get(query);
-    }
-
-    async getStateHistory(table, limit = 100) {
-        const query = `SELECT * FROM ${table} ORDER BY timestamp DESC LIMIT ?`;
-        return this.db.all(query, limit);
-    }
 
     async getEmotionalTrends(period = 'day') {
         const periodMap = {
@@ -2609,7 +2278,6 @@ export class DatabaseManager {
             const rows = data.tables[table];
             if (rows.length === 0) continue;
 
-            // Obtener columnas
             const columns = Object.keys(rows[0]);
             const placeholders = columns.map(() => '?').join(',');
             
@@ -2628,7 +2296,6 @@ export class DatabaseManager {
     async optimize() {
         console.log('🔧 Optimizando base de datos...');
         
-        // Analizar tablas
         const tables = await this.db.all(`
             SELECT name FROM sqlite_master 
             WHERE type='table' AND name NOT LIKE 'sqlite_%'
@@ -2638,13 +2305,8 @@ export class DatabaseManager {
             await this.db.exec(`ANALYZE ${table.name}`);
         }
 
-        // Reconstruir índices
         await this.db.exec('REINDEX');
-
-        // Vacuum
         await this.db.exec('VACUUM');
-
-        // Limpiar caché
         this.cache.clear();
 
         console.log('✅ Optimización completada');
@@ -2778,6 +2440,71 @@ export class DatabaseManager {
             ORDER BY conexion DESC
         `;
         return this.db.all(query);
+    }
+
+    // ============ LIMPIEZA Y CIERRE ============
+
+    async cleanup() {
+        const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+        
+        const tables = [
+            'sistema_estados', 'sistema_metricas', 'sistema_eventos',
+            'bioquimica_estados', 'bioquimica_neurotransmisores', 
+            'bioquimica_hormonas', 'bioquimica_signos_vitales',
+            'emociones_estados', 'emociones_dimensiones', 'emociones_historico',
+            'cognitivo_estados', 'cognitivo_procesos', 'cognitivo_pensamientos',
+            'motor_estados', 'motor_acciones',
+            'social_interacciones'
+        ];
+
+        for (const table of tables) {
+            await this.db.run(`DELETE FROM ${table} WHERE timestamp < ?`, thirtyDaysAgo);
+        }
+
+        await this.db.run(`
+            DELETE FROM memoria_episodica 
+            WHERE id NOT IN (
+                SELECT id FROM memoria_episodica 
+                ORDER BY importancia DESC, fuerza DESC 
+                LIMIT 50000
+            )
+        `);
+
+        await this.db.run(`
+            DELETE FROM cognitivo_pensamientos 
+            WHERE id NOT IN (
+                SELECT id FROM cognitivo_pensamientos 
+                ORDER BY timestamp DESC 
+                LIMIT 10000
+            )
+        `);
+
+        await this.db.exec('VACUUM');
+        this.cache.clear();
+        console.log('🗄️ Limpieza y optimización completadas');
+    }
+
+    async getMetrics() {
+        return {
+            ...this.metrics,
+            cacheSize: this.cache.size,
+            isInitialized: this.isInitialized,
+            databaseSize: (await this.db.get('SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()'))?.size || 0,
+            tableCount: (await this.db.get('SELECT COUNT(*) as count FROM sqlite_master WHERE type="table"')).count,
+            viewCount: (await this.db.get('SELECT COUNT(*) as count FROM sqlite_master WHERE type="view"')).count,
+            triggerCount: (await this.db.get('SELECT COUNT(*) as count FROM sqlite_master WHERE type="trigger"')).count,
+            indexCount: (await this.db.get('SELECT COUNT(*) as count FROM sqlite_master WHERE type="index"')).count
+        };
+    }
+
+    async close() {
+        if (this.backupInterval) {
+            clearInterval(this.backupInterval);
+        }
+        if (this.db) {
+            await this.db.close();
+            this.isInitialized = false;
+        }
     }
 }
 
