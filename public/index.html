@@ -162,12 +162,182 @@
             color: #ff6666;
             margin: 20px 0;
         }
+
+        /* ============ ESTILOS DEL CHAT ============ */
+        .chat-section {
+            margin-top: 20px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            padding-top: 20px;
+        }
+        .chat-section h3 {
+            color: #00d4ff;
+            margin-bottom: 15px;
+        }
+        .chat-container {
+            background: rgba(0,0,0,0.3);
+            border-radius: 12px;
+            padding: 15px;
+            max-height: 350px;
+            overflow-y: auto;
+            margin-bottom: 10px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .chat-message {
+            margin-bottom: 12px;
+            padding: 10px 14px;
+            border-radius: 12px;
+            max-width: 85%;
+            word-wrap: break-word;
+            animation: fadeIn 0.3s ease;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .user-message {
+            background: rgba(0, 212, 255, 0.15);
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            margin-left: auto;
+            text-align: right;
+        }
+        .brain-message {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            margin-right: auto;
+        }
+        .chat-message .sender {
+            font-size: 0.7em;
+            color: #8888aa;
+            margin-bottom: 4px;
+        }
+        .chat-message .content {
+            font-size: 0.95em;
+            line-height: 1.5;
+        }
+        .chat-message .reasoning {
+            font-size: 0.8em;
+            color: #666688;
+            margin-top: 5px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+            padding-top: 5px;
+        }
+        .chat-message .emotion-tag {
+            display: inline-block;
+            padding: 2px 12px;
+            border-radius: 10px;
+            font-size: 0.7em;
+            margin-top: 5px;
+        }
+        .emotion-tag.alegria { background: rgba(255, 213, 79, 0.2); color: #ffd54f; }
+        .emotion-tag.tristeza { background: rgba(100, 150, 255, 0.2); color: #6496ff; }
+        .emotion-tag.miedo { background: rgba(186, 104, 200, 0.2); color: #ba68c8; }
+        .emotion-tag.ira { background: rgba(229, 115, 115, 0.2); color: #e57373; }
+        .emotion-tag.confianza { background: rgba(129, 199, 132, 0.2); color: #81c784; }
+        .emotion-tag.neutral { background: rgba(255, 255, 255, 0.05); color: #8888aa; }
         
+        .chat-message .confidence {
+            font-size: 0.7em;
+            color: #666688;
+            margin-top: 4px;
+        }
+        .chat-message .internal-state {
+            font-size: 0.65em;
+            color: #555577;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(255,255,255,0.05);
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .chat-message .personality-tag {
+            font-size: 0.65em;
+            color: #555577;
+            margin-top: 4px;
+        }
+        
+        .chat-input-area {
+            display: flex;
+            gap: 10px;
+        }
+        .chat-input-area input {
+            flex: 1;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(0,0,0,0.3);
+            color: #fff;
+            font-size: 14px;
+        }
+        .chat-input-area input:focus {
+            outline: none;
+            border-color: #00d4ff;
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.1);
+        }
+        .chat-input-area button {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 8px;
+            background: #00d4ff;
+            color: #0a0a1a;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .chat-input-area button:hover {
+            background: #00b8e6;
+            transform: translateY(-2px);
+        }
+        .chat-input-area button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .quick-buttons {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+            flex-wrap: wrap;
+        }
+        .quick-btn {
+            padding: 6px 12px;
+            border-radius: 15px;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.05);
+            color: #aaaacc;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .quick-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+        }
+        .quick-btn.danger { background: rgba(255,50,50,0.1); color: #ff6666; border-color: rgba(255,50,50,0.1); }
+        .quick-btn.success { background: rgba(0,255,100,0.1); color: #66ff88; border-color: rgba(0,255,100,0.1); }
+        .quick-btn.warning { background: rgba(255,200,0,0.1); color: #ffd700; border-color: rgba(255,200,0,0.1); }
+        .quick-btn.info { background: rgba(0,200,255,0.1); color: #66ddff; border-color: rgba(0,200,255,0.1); }
+        
+        .typing-indicator {
+            color: #666688;
+            font-style: italic;
+            font-size: 0.9em;
+            padding: 8px 0;
+        }
+        .system-message {
+            text-align: center;
+            color: #666688;
+            padding: 10px;
+        }
+
         @media (max-width: 600px) {
             .container { padding: 15px; }
             h1 { font-size: 1.8em; }
             .status-grid { grid-template-columns: 1fr 1fr; }
             .metrics-grid { grid-template-columns: 1fr 1fr; }
+            .chat-input-area { flex-direction: column; }
+            .chat-input-area button { width: 100%; }
         }
     </style>
 </head>
@@ -228,6 +398,27 @@
             <button onclick="think()">🤔 Pensar</button>
         </div>
         
+        <!-- ============ CHAT ============ -->
+        <div class="chat-section">
+            <h3>💬 Conversación con el Cerebro</h3>
+            <div class="chat-container" id="chatMessages">
+                <div class="system-message">
+                    🤖 Hola, soy tu cerebro digital. Cuéntame cualquier situación y te daré mi respuesta auténtica.
+                </div>
+            </div>
+            <div class="chat-input-area">
+                <input type="text" id="chatInput" placeholder="Escribe una situación o pregunta..." autofocus>
+                <button onclick="sendChatMessage()" id="sendBtn">Enviar 📤</button>
+            </div>
+            <div class="quick-buttons">
+                <button onclick="quickChat('Estoy en una situación peligrosa, ¿qué harías?')" class="quick-btn danger">⚠️ Peligro</button>
+                <button onclick="quickChat('Me siento muy feliz hoy, ¿cómo reaccionarías?')" class="quick-btn success">😊 Felicidad</button>
+                <button onclick="quickChat('Tengo que tomar una decisión difícil, ¿qué harías?')" class="quick-btn warning">🤔 Decisión</button>
+                <button onclick="quickChat('Alguien necesita ayuda, ¿qué harías?')" class="quick-btn info">🆘 Ayuda</button>
+                <button onclick="quickChat('¿Qué piensas sobre el sentido de la vida?')" class="quick-btn">🌌 Filosofía</button>
+            </div>
+        </div>
+        
         <div class="log-container" id="logContainer">
             <div class="log-entry">
                 <span class="time">[SISTEMA]</span>
@@ -241,8 +432,10 @@
     </div>
     
     <script>
+        // ============ VARIABLES GLOBALES ============
         let errorCount = 0;
         
+        // ============ FUNCIONES DE ESTADO ============
         async function fetchState() {
             try {
                 const response = await fetch('/api/state');
@@ -276,7 +469,6 @@
             const metrics = data.metrics;
             
             if (state && state.system) {
-                // Actualizar tarjetas de estado
                 document.getElementById('consciousness').textContent = 
                     `${((state.system.consciousness || 0) * 100).toFixed(1)}%`;
                 document.getElementById('stability').textContent = 
@@ -289,10 +481,8 @@
                 document.getElementById('systemStatus').style.color = 
                     state.system.emergency ? '#ff4444' : '#00ff88';
                 
-                // Actualizar métricas
                 document.getElementById('cycles').textContent = state.system.cycles || 0;
                 
-                // ✅ CORREGIDO: Contar módulos correctamente
                 const modules = state.modules || {};
                 const moduleCount = Object.keys(modules).length;
                 document.getElementById('modules').textContent = moduleCount > 0 ? moduleCount : '--';
@@ -300,15 +490,10 @@
                 document.getElementById('alerts').textContent = state.system.alerts || 0;
             }
             
-            // ✅ CORREGIDO: Mostrar emoción dominante
             let emotion = '--';
-            
-            // 1. Buscar en metrics.emocion_dominante
             if (metrics && metrics.emocion_dominante) {
                 emotion = metrics.emocion_dominante;
-            }
-            // 2. Buscar en state.modules.emotional
-            else if (state && state.modules && state.modules.emotional) {
+            } else if (state && state.modules && state.modules.emotional) {
                 const emotional = state.modules.emotional;
                 const emotions = ['alegria', 'tristeza', 'miedo', 'ira', 'confianza'];
                 let max = 0;
@@ -321,24 +506,10 @@
                 });
                 if (max > 0) emotion = dominant;
             }
-            // 3. Buscar en metrics.database.emocion_dominante
-            else if (metrics && metrics.database && metrics.database.emocion_dominante) {
-                emotion = metrics.database.emocion_dominante;
-            }
-            
             document.getElementById('dominantEmotion').textContent = emotion;
-            
-            // Log de depuración
-            console.log('✅ UI actualizada:', {
-                consciousness: document.getElementById('consciousness').textContent,
-                stability: document.getElementById('stability').textContent,
-                performance: document.getElementById('performance').textContent,
-                cycles: document.getElementById('cycles').textContent,
-                modules: document.getElementById('modules').textContent,
-                emotion: document.getElementById('dominantEmotion').textContent
-            });
         }
         
+        // ============ FUNCIONES DE SITUACIONES ============
         async function applySituation(type) {
             try {
                 const response = await fetch('/api/situation', {
@@ -387,6 +558,7 @@
             }
         }
         
+        // ============ FUNCIONES DEL LOG ============
         function addLog(message, type = '') {
             const container = document.getElementById('logContainer');
             const entry = document.createElement('div');
@@ -403,7 +575,167 @@
             }
         }
         
-        // Inicializar
+        // ============ FUNCIONES DEL CHAT ============
+        async function sendChatMessage() {
+            const input = document.getElementById('chatInput');
+            const message = input.value.trim();
+            const sendBtn = document.getElementById('sendBtn');
+            
+            if (!message) return;
+            
+            addChatMessage('user', message);
+            input.value = '';
+            input.disabled = true;
+            sendBtn.disabled = true;
+            sendBtn.textContent = '⏳ Enviando...';
+            
+            addTypingIndicator();
+            
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        message: message,
+                        context: { source: 'web_interface' }
+                    })
+                });
+                
+                const data = await response.json();
+                removeTypingIndicator();
+                
+                if (data.success) {
+                    addChatMessage('brain', data.message, {
+                        emotion: data.emotion || 'neutral',
+                        emoji: data.emoji || '🧠',
+                        confidence: data.confidence || 0.5,
+                        reasoning: data.reasoning || '',
+                        personality: data.personality || {},
+                        internal_state: data.internal_state || {}
+                    });
+                    
+                    if (data.state) {
+                        updateUI({ state: { system: data.state }, metrics: {} });
+                    }
+                } else {
+                    addChatMessage('brain', 'Lo siento, no pude procesar tu mensaje. ' + (data.error || ''), {
+                        emotion: 'neutral',
+                        emoji: '😕',
+                        confidence: 0
+                    });
+                }
+            } catch (error) {
+                removeTypingIndicator();
+                addChatMessage('brain', 'Error de conexión: ' + error.message, {
+                    emotion: 'neutral',
+                    emoji: '😕',
+                    confidence: 0
+                });
+            }
+            
+            input.disabled = false;
+            sendBtn.disabled = false;
+            sendBtn.textContent = 'Enviar 📤';
+            input.focus();
+        }
+        
+        function quickChat(message) {
+            document.getElementById('chatInput').value = message;
+            sendChatMessage();
+        }
+        
+        function addChatMessage(sender, content, metadata = {}) {
+            const container = document.getElementById('chatMessages');
+            const div = document.createElement('div');
+            div.className = `chat-message ${sender === 'user' ? 'user-message' : 'brain-message'}`;
+            
+            const senderName = sender === 'user' ? '🧑 Tú' : `🤖 Cerebro ${metadata.emoji || ''}`;
+            const emotionClass = metadata.emotion || 'neutral';
+            const confidenceText = metadata.confidence ? `Confianza: ${(metadata.confidence * 100).toFixed(0)}%` : '';
+            const reasoningText = metadata.reasoning || '';
+            
+            // Personalidad
+            let personalityHtml = '';
+            if (metadata.personality && Object.keys(metadata.personality).length > 0) {
+                const p = metadata.personality;
+                const traitNames = {
+                    openness: 'Apertura',
+                    conscientiousness: 'Conciencia',
+                    extraversion: 'Extraversión',
+                    agreeableness: 'Amabilidad',
+                    neuroticism: 'Neuroticismo'
+                };
+                const traitEmojis = {
+                    openness: '🎨',
+                    conscientiousness: '📋',
+                    extraversion: '🗣️',
+                    agreeableness: '💚',
+                    neuroticism: '🌊'
+                };
+                const traits = ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'neuroticism'];
+                const display = traits
+                    .filter(t => p[t] !== undefined)
+                    .map(t => `${traitEmojis[t] || '•'} ${traitNames[t] || t}: ${Math.round((p[t] || 0) * 100)}%`)
+                    .join(' ');
+                personalityHtml = `<div class="personality-tag">🧬 ${display}</div>`;
+            }
+            
+            // Estado interno
+            let internalHtml = '';
+            if (metadata.internal_state) {
+                const s = metadata.internal_state;
+                internalHtml = `
+                    <div class="internal-state">
+                        <span>⚡ Energía: ${Math.round(s.energia || 0)}%</span>
+                        <span>🧪 Dopamina: ${Math.round(s.dopamina || 0)}%</span>
+                        <span>🧬 Cortisol: ${Math.round(s.cortisol || 0)}%</span>
+                    </div>
+                `;
+            }
+            
+            div.innerHTML = `
+                <div class="sender">${senderName}</div>
+                <div class="content">${content}</div>
+                ${reasoningText ? `<div class="reasoning">💭 ${reasoningText}</div>` : ''}
+                ${metadata.emotion ? `<div class="emotion-tag ${emotionClass}">${metadata.emotion} ${metadata.emoji || ''}</div>` : ''}
+                ${confidenceText ? `<div class="confidence">${confidenceText}</div>` : ''}
+                ${personalityHtml}
+                ${internalHtml}
+            `;
+            
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+        
+        function addTypingIndicator() {
+            const container = document.getElementById('chatMessages');
+            const div = document.createElement('div');
+            div.id = 'typingIndicator';
+            div.className = 'typing-indicator';
+            div.textContent = '🧠 El cerebro está pensando...';
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+        
+        function removeTypingIndicator() {
+            const indicator = document.getElementById('typingIndicator');
+            if (indicator) indicator.remove();
+        }
+        
+        // ============ EVENTOS ============
+        document.addEventListener('DOMContentLoaded', () => {
+            const input = document.getElementById('chatInput');
+            if (input) {
+                input.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        sendChatMessage();
+                    }
+                });
+                setTimeout(() => input.focus(), 500);
+            }
+        });
+        
+        // ============ INICIALIZACIÓN ============
         console.log('🧠 Cerebro Digital V3.0 - Interfaz cargada');
         console.log('📊 API disponible en /api');
         
