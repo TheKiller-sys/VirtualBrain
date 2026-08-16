@@ -1,9 +1,10 @@
 // src/modules/MotivationSystem.js
-import { brain } from '../core/SystemCore.js';
+import { systemCore } from '../core/SystemCore.js';
 
 export class MotivationSystem {
     constructor() {
         this.state = {};
+        this.config = {};
         this.drives = {};
         this.currentGoals = [];
         this.motivationHistory = [];
@@ -15,15 +16,16 @@ export class MotivationSystem {
     }
 
     async initialize(characterConfig) {
-        this.config = characterConfig;
+        this.config = characterConfig || { genotipo: 'humano' };
         this.initializeDrives();
         this.initializeState();
         this.setupGoalSystem();
-        console.log('🎯 Sistema de motivación V3.0 inicializado');
+        systemCore.logSystem('Sistema de motivación V3.0 inicializado');
     }
 
     initializeDrives() {
-        // Impulsores biológicos
+        const genotipo = this.config?.genotipo || 'humano';
+        
         this.drives = {
             hambre: 0.3,
             sed: 0.2,
@@ -42,22 +44,27 @@ export class MotivationSystem {
             exploracion: 0.5,
             significado: 0.3
         };
+        
         this.adjustDrivesByGenotype();
     }
 
     adjustDrivesByGenotype() {
+        const genotipo = this.config?.genotipo || 'humano';
+        
         const adjustments = {
             humano: {},
-            intelectual: { curiosidad: 0.2, logro: 0.15, autonomia: 0.15, competencia: 0.15 },
-            creativo: { curiosidad: 0.25, exploracion: 0.2, autonomia: 0.1, significado: 0.15 },
-            estratega: { logro: 0.2, poder: 0.15, competencia: 0.15, estatus: 0.1 },
-            perceptivo: { curiosidad: 0.15, exploracion: 0.15, seguridad: 0.1, confort: 0.1 },
-            resiliente: { seguridad: 0.15, confort: 0.1, logro: 0.1, pertenencia: 0.1 },
-            social: { afiliacion: 0.25, pertenencia: 0.2, reconocimiento: 0.15, contribucion: 0.15 }
+            resiliente: { confort: 0.1, seguridad: 0.1, logro: 0.05 },
+            vulnerable: { seguridad: 0.2, afiliacion: 0.1, confort: 0.15 },
+            audaz: { poder: 0.2, logro: 0.15, curiosidad: 0.1, seguridad: -0.1 },
+            intelectual: { curiosidad: 0.2, logro: 0.1, autonomia: 0.1, competencia: 0.15 },
+            social: { afiliacion: 0.2, pertenencia: 0.15, reconocimiento: 0.1, contribucion: 0.1 }
         };
-        const adj = adjustments[this.config.genotipo] || adjustments.humano;
+        
+        const adj = adjustments[genotipo] || adjustments.humano;
         Object.keys(adj).forEach(key => {
-            if (this.drives[key] !== undefined) this.drives[key] += adj[key];
+            if (this.drives[key] !== undefined) {
+                this.drives[key] += adj[key];
+            }
         });
     }
 
@@ -80,7 +87,7 @@ export class MotivationSystem {
         this.goalAccomplishments = [];
         this.rewardHistory = [];
         this.frustrationHistory = [];
-        this.lastUpdateTime = brain.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime || Date.now();
     }
 
     setupGoalSystem() {
@@ -108,7 +115,7 @@ export class MotivationSystem {
     }
 
     update(input, deltaTime) {
-        this.lastUpdateTime = brain.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime || Date.now();
         if (!input || !input.biochemical || !input.emotional) return this.getState();
         this.updateDrives(input, deltaTime);
         this.processGoals(input, deltaTime);
@@ -124,6 +131,7 @@ export class MotivationSystem {
         const emoState = input.emotional || {};
         const cogState = input.cognitive || {};
         const envState = input.environmental || {};
+        
         this.drives.hambre = 1 - (bioState.energia || 50) / 100;
         this.drives.sed = 1 - ((bioState.estadoHidratacion || 50) / 100);
         this.drives.confort = 1 - ((bioState.cortisol || 0) / 100) * 0.5;
@@ -142,10 +150,12 @@ export class MotivationSystem {
         this.drives.significado = this.clamp(this.drives.significado, 0, 1);
         this.drives.exploracion += ((cogState.curiosidad || 50) / 100) * 0.006 * deltaTime;
         this.drives.exploracion = this.clamp(this.drives.exploracion, 0, 1);
+        
         Object.keys(this.drives).forEach(key => {
             this.drives[key] *= (1 - 0.0008 * deltaTime);
             this.drives[key] = this.clamp(this.drives[key], 0, 1);
         });
+        
         let maxDrive = 0, dominant = 'curiosidad';
         Object.keys(this.drives).forEach(key => {
             if (this.drives[key] > maxDrive) { maxDrive = this.drives[key]; dominant = key; }
@@ -171,7 +181,7 @@ export class MotivationSystem {
             }
         }
         this.state.focoMotivacional = this.currentGoals[0]?.prioridad / 10 || 0.5;
-        // Actualizar frustración
+        
         if (mainGoal && mainGoal.progreso < 20 && this.state.persistencia > 0.6) {
             this.state.frustracion += 0.01 * deltaTime;
             this.frustrationHistory.push({ level: this.state.frustracion, timestamp: this.lastUpdateTime });
@@ -343,7 +353,6 @@ export class MotivationSystem {
         this.goalAccomplishments = [];
         this.rewardHistory = [];
         this.frustrationHistory = [];
-        console.log('🔄 Sistema de motivación reiniciado');
     }
 
     exportData() {
@@ -359,4 +368,4 @@ export class MotivationSystem {
     }
 }
 
-brain.registerModule('motivation', new MotivationSystem());
+systemCore.registerModule('motivation', new MotivationSystem());
