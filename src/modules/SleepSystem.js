@@ -1,9 +1,10 @@
 // src/modules/SleepSystem.js
-import { brain } from '../core/SystemCore.js';
+import { systemCore } from '../core/SystemCore.js';
 
 export class SleepSystem {
     constructor() {
         this.state = {};
+        this.config = {};
         this.eventListeners = [];
         this.sleepHistory = [];
         this.dreamLog = [];
@@ -15,10 +16,10 @@ export class SleepSystem {
     }
 
     async initialize(characterConfig) {
-        this.config = characterConfig;
+        this.config = characterConfig || { genotipo: 'humano' };
         this.initializeState();
         this.setupCircadianRhythm();
-        console.log('😴 Sistema de sueño V3.0 inicializado');
+        systemCore.logSystem('Sistema de sueño V3.0 inicializado');
     }
 
     initializeState() {
@@ -40,7 +41,7 @@ export class SleepSystem {
         };
         this.sleepHistory = [];
         this.dreamLog = [];
-        this.lastUpdateTime = brain.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime || Date.now();
         this.circadianPhase = 0;
         this.dreamGenerationTimer = 0;
         this.sleepDepth = 0;
@@ -66,7 +67,7 @@ export class SleepSystem {
     }
 
     update(input, deltaTime) {
-        this.lastUpdateTime = brain.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime || Date.now();
         if (!input || !input.biochemical) return this.getState();
         this.updateCircadianRhythm(deltaTime);
         this.calculateSleepPressure(input.biochemical, deltaTime);
@@ -169,7 +170,7 @@ export class SleepSystem {
             this.state.calidadSueño = this.calculateSleepQuality();
             this.state.eficienciaSueño = this.calculateSleepEfficiency();
             this.state.despertares++;
-            this.state.ultimoDespertar = brain.systemTime || Date.now();
+            this.state.ultimoDespertar = systemCore.systemTime || Date.now();
             this.emitEvent('woke_up', { quality: this.state.calidadSueño, efficiency: this.state.eficienciaSueño, time: this.state.tiempoDormido });
         }
         if (newState === 'sueño_rem') {
@@ -223,7 +224,7 @@ export class SleepSystem {
                 recuperacion: recoveryRate * 25,
                 fatigaAcumulada: -recoveryRate * 10
             };
-            brain.modules.get('biochemical')?.applyModulation(modulation);
+            systemCore.modules.get('biochemical')?.applyModulation(modulation);
         }
         if (this.state.estado === 'sueño_rem') {
             const recoveryRate = 0.025 * this.state.calidadSueño * deltaTime;
@@ -233,7 +234,7 @@ export class SleepSystem {
                 oxitocina: recoveryRate * 10,
                 cortisol: -recoveryRate * 5
             };
-            brain.modules.get('biochemical')?.applyModulation(modulation);
+            systemCore.modules.get('biochemical')?.applyModulation(modulation);
         }
     }
 
@@ -241,7 +242,7 @@ export class SleepSystem {
         const quality = this.state.calidadSueño;
         if ((bioState.energia || 50) < 30) {
             const recoveryRate = 0.008 * quality * deltaTime;
-            brain.modules.get('biochemical')?.applyModulation({
+            systemCore.modules.get('biochemical')?.applyModulation({
                 energia: recoveryRate * 10,
                 cortisol: -recoveryRate * 5
             });
@@ -252,7 +253,7 @@ export class SleepSystem {
         if (!this.state.sueñosActivos) return;
         if (Math.random() < 0.008 * deltaTime) {
             const dream = this.generateDream();
-            this.dreamLog.push({ ...dream, timestamp: brain.systemTime || Date.now() });
+            this.dreamLog.push({ ...dream, timestamp: systemCore.systemTime || Date.now() });
             if (this.dreamLog.length > 50) this.dreamLog.shift();
             this.emitEvent('dream_occurred', dream);
         }
@@ -304,7 +305,6 @@ export class SleepSystem {
         this.dreamGenerationTimer = 0;
         this.sleepDepth = 0;
         this.cycleCounter = 0;
-        console.log('🔄 Sistema de sueño reiniciado');
     }
 
     exportData() {
@@ -318,4 +318,4 @@ export class SleepSystem {
     }
 }
 
-brain.registerModule('sleep', new SleepSystem());
+systemCore.registerModule('sleep', new SleepSystem());
