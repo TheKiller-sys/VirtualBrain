@@ -12,6 +12,7 @@ export class SystemCore {
         this.eventBus = new EventTarget();
         this.eventHistory = [];
         this.database = null;
+        this.eventListeners = [];
         
         this.statistics = {
             stabilityHistory: [],
@@ -94,9 +95,6 @@ export class SystemCore {
             neuroplasticity: 0.8,
             consciousnessGrowth: 0.01
         };
-        
-        // ✅ Array para listeners de eventos
-        this.eventListeners = [];
     }
 
     registerModule(name, module) {
@@ -104,12 +102,10 @@ export class SystemCore {
         this.logSystem(`Módulo registrado: ${name}`);
     }
 
-    // ✅ MÉTODO PARA REGISTRAR LISTENERS
     onEvent(callback) {
         this.eventListeners.push(callback);
     }
 
-    // ✅ MÉTODO PARA EMITIR EVENTOS
     emitEvent(type, data) {
         this.eventListeners.forEach(cb => {
             try {
@@ -124,7 +120,6 @@ export class SystemCore {
         this.database = database;
     }
 
-    // ✅ CORREGIDO: RETORNA true SIEMPRE QUE NO HAYA ERROR CRÍTICO
     async initializeSystem(characterConfig) {
         this.characterConfig = characterConfig;
         
@@ -144,7 +139,6 @@ export class SystemCore {
                         this.logSystem(`Módulo inicializado: ${moduleName}`);
                     } catch (error) {
                         this.logSystem(`Error inicializando ${moduleName}: ${error.message}`, 'error');
-                        // ✅ CONTINUAR CON LOS DEMÁS MÓDULOS
                     }
                 }
             }
@@ -159,13 +153,11 @@ export class SystemCore {
                 modules: Array.from(this.modules.keys())
             });
             
-            // ✅ RETORNAR true SIEMPRE
             return true;
             
         } catch (error) {
             this.logSystem(`Error en inicialización: ${error.message}`, 'error');
             console.error(error.stack);
-            // ✅ RETORNAR false SOLO SI HAY ERROR CRÍTICO
             return false;
         }
     }
@@ -235,10 +227,11 @@ export class SystemCore {
             this.updateStatistics(results);
             this.checkAlerts(results);
             this.updateConsciousness(results);
-            this.recordCycle(results);
+            this.recordCycle(results); // ✅ AHORA EXISTE
 
         } catch (error) {
             this.logSystem(`Error en ciclo de actualización: ${error.message}`, 'error');
+            console.error('❌ Error detallado:', error.stack);
             this.triggerEmergencyProtocol();
         }
     }
@@ -458,6 +451,27 @@ export class SystemCore {
                 level: this.systemState.consciousnessLevel,
                 time: this.systemTime
             });
+        }
+    }
+
+    // ✅ MÉTODO AGREGADO
+    recordCycle(results) {
+        const cycleData = {
+            timestamp: this.systemTime,
+            cycle: this.cycleCount,
+            stability: this.systemState.stability,
+            performance: this.systemState.performance,
+            consciousness: this.systemState.consciousnessLevel,
+            biochemical: results.biochemical,
+            emotional: results.emotional,
+            cognitive: results.cognitive,
+            alerts: this.alerts.activeAlerts.length
+        };
+        
+        this.cycleHistory.push(cycleData);
+        
+        if (this.cycleHistory.length > this.coreConfig.maxCycleHistory) {
+            this.cycleHistory.shift();
         }
     }
 
