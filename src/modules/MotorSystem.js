@@ -1,9 +1,10 @@
 // src/modules/MotorSystem.js
-import { brain } from '../core/SystemCore.js';
+import { systemCore } from '../core/SystemCore.js';
 
 export class MotorSystem {
     constructor() {
         this.state = {};
+        this.config = {};
         this.motorSkills = new Map();
         this.actionQueue = [];
         this.currentAction = null;
@@ -14,63 +15,85 @@ export class MotorSystem {
         this.executionHistory = [];
         this.movementPatterns = [];
         this.reflexes = new Map();
+        this.motorProfile = {};
     }
 
     async initialize(characterConfig) {
-        this.config = characterConfig;
+        this.config = characterConfig || { genotipo: 'humano' };
         this.setupMotorProfile();
         this.initializeState();
         this.setupBasicSkills();
         this.setupMotorLearning();
         this.setupReflexes();
-        console.log('🏃 Sistema motor V3.0 inicializado');
+        systemCore.logSystem('Sistema motor V3.0 inicializado');
     }
 
     setupMotorProfile() {
-        const baseProfile = {
-            coordination: 1.0,
-            strength: 1.0,
-            endurance: 1.0,
-            recovery: 1.0,
-            precision: 1.0,
-            agility: 1.0,
-            motorLearning: 1.0,
-            fineMotor: 1.0,
-            reflexSpeed: 1.0
-        };
-
+        const genotipo = this.config?.genotipo || 'humano';
+        
         const profiles = {
-            humano: baseProfile,
-            atleta: {
-                ...baseProfile,
-                coordination: 1.3,
-                strength: 1.3,
-                endurance: 1.2,
-                agility: 1.3,
-                reflexSpeed: 1.2
-            },
-            artista: {
-                ...baseProfile,
-                fineMotor: 1.4,
-                precision: 1.3,
-                coordination: 1.2,
-                motorLearning: 1.2
-            },
-            estratega: {
-                ...baseProfile,
-                precision: 1.2,
-                coordination: 1.1,
-                reflexSpeed: 1.3
+            humano: {
+                coordination: 1.0,
+                strength: 1.0,
+                endurance: 1.0,
+                recovery: 1.0,
+                precision: 1.0,
+                agility: 1.0,
+                motorLearning: 1.0,
+                fineMotor: 1.0,
+                reflexSpeed: 1.0
             },
             resiliente: {
-                ...baseProfile,
+                coordination: 1.2,
+                strength: 1.1,
                 endurance: 1.3,
-                recovery: 1.3,
-                strength: 1.1
+                recovery: 1.2,
+                precision: 1.1,
+                agility: 1.0,
+                motorLearning: 1.2
+            },
+            vulnerable: {
+                coordination: 0.8,
+                strength: 0.7,
+                endurance: 0.6,
+                recovery: 0.8,
+                precision: 0.9,
+                agility: 0.7,
+                motorLearning: 0.8
+            },
+            audaz: {
+                coordination: 1.3,
+                strength: 1.4,
+                endurance: 1.1,
+                recovery: 1.0,
+                precision: 0.9,
+                agility: 1.5,
+                motorLearning: 1.0,
+                riskTaking: 1.4
+            },
+            intelectual: {
+                coordination: 1.1,
+                strength: 0.9,
+                endurance: 1.0,
+                recovery: 1.1,
+                precision: 1.4,
+                agility: 1.0,
+                motorLearning: 1.3,
+                fineMotor: 1.3
+            },
+            social: {
+                coordination: 1.2,
+                strength: 1.0,
+                endurance: 1.1,
+                recovery: 1.2,
+                precision: 1.1,
+                agility: 1.1,
+                motorLearning: 1.1,
+                expressive: 1.4
             }
         };
 
-        this.motorProfile = profiles[this.config.genotipo] || profiles.humano;
+        this.motorProfile = profiles[genotipo] || profiles.humano;
     }
 
     initializeState() {
@@ -215,35 +238,18 @@ export class MotorSystem {
     }
 
     update(input, deltaTime) {
-        this.lastUpdateTime = brain.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime || Date.now();
         
         if (!input || !input.biochemical) return this.getState();
 
-        // 1. Procesar reflejos
         this.processReflexes(input, deltaTime);
-        
-        // 2. Actualizar capacidades motoras basales
         this.updateBasalCapacities(input.biochemical, deltaTime);
-        
-        // 3. Procesar acciones en cola
         this.processActionQueue(deltaTime);
-        
-        // 4. Actualizar estados de fatiga y recuperación
         this.updateFatigueAndRecovery(deltaTime);
-        
-        // 5. Aplicar efectos de neurotransmisores
         this.applyNeurotransmitterEffects(input.biochemical, deltaTime);
-        
-        // 6. Gestionar control motor
         this.manageMotorControl(deltaTime);
-        
-        // 7. Aplicar aprendizaje motor
         this.applyMotorLearning(deltaTime);
-        
-        // 8. Generar patrones de movimiento
         this.generateMovementPatterns(deltaTime);
-        
-        // 9. Aplicar homeostasis motora
         this.applyMotorHomeostasis(deltaTime);
 
         return this.getState();
@@ -253,17 +259,14 @@ export class MotorSystem {
         const bioState = input.biochemical || {};
         const emoState = input.emotional || {};
         
-        // Reflejo de estrés
         if (bioState.cortisol > 70 && emoState.miedo > 60) {
             this.executeReflex('retirar_mano');
         }
         
-        // Reflejo de equilibrio
         if (this.state.equilibrio < 40) {
             this.executeReflex('equilibrio');
         }
         
-        // Reflejo de parpadeo
         if (input.environmental && input.environmental.luz > 90) {
             this.executeReflex('parpadeo');
         }
@@ -278,7 +281,7 @@ export class MotorSystem {
             prioridad: reflex.priority || 5,
             intensidad: 1.0,
             esReflejo: true,
-            timestamp: brain.systemTime || Date.now()
+            timestamp: systemCore.systemTime || Date.now()
         };
         
         this.addToActionQueue(action);
@@ -314,7 +317,6 @@ export class MotorSystem {
             noradrenalina: (bioState.noradrenalina || 50) / 100
         };
 
-        // Efecto de hidratación
         if (bioState.estadoHidratacion < 30) {
             modificationFactors.fuerza *= 0.8;
             modificationFactors.resistencia *= 0.7;
@@ -335,7 +337,6 @@ export class MotorSystem {
             this.state[capacity] = this.clamp(baseValue, 0, 100);
         });
 
-        // Tiempo de reacción
         const reactionBase = 60;
         const speedFactor = (this.state.velocidad || 50) / 100;
         const attentionFactor = (bioState.dopamina || 50) / 100;
@@ -413,7 +414,7 @@ export class MotorSystem {
 
         if (!this.currentAction && this.actionQueue.length > 0) {
             this.currentAction = this.actionQueue.shift();
-            this.currentAction.inicio = brain.systemTime || Date.now();
+            this.currentAction.inicio = systemCore.systemTime || Date.now();
             this.currentAction.completado = false;
             this.currentAction.progreso = 0;
             
@@ -450,7 +451,7 @@ export class MotorSystem {
         if (action.progreso >= 1.0) {
             action.completado = true;
             action.resultado = this.determineActionResult(skill, action);
-            action.fin = brain.systemTime || Date.now();
+            action.fin = systemCore.systemTime || Date.now();
             
             this.learnFromAction(skill, action);
             
@@ -531,9 +532,9 @@ export class MotorSystem {
         const gain = learningRate * resultBonus * (0.5 + qualityBonus * 0.5) * reflexModifier;
         skill.nivel = Math.min(100, (skill.nivel || 0) + gain * 2);
         skill.practica = (skill.practica || 0) + 1;
-        skill.ultimoUso = brain.systemTime || Date.now();
+        skill.ultimoUso = systemCore.systemTime || Date.now();
         skill.eficiencia = Math.min(1.0, (skill.eficiencia || 0) + learningRate * 0.04);
-        skill.ultimaPractica = brain.systemTime || Date.now();
+        skill.ultimaPractica = systemCore.systemTime || Date.now();
         
         if ((skill.nivel || 0) > 85) {
             skill.complejidadDominada = true;
@@ -621,14 +622,13 @@ export class MotorSystem {
     }
 
     generateMovementPatterns(deltaTime) {
-        // Generar patrones de movimiento basados en emociones y estado
         if (Math.random() < 0.01 * deltaTime) {
             const patterns = ['ritmico', 'fluido', 'erratico', 'preciso', 'explosivo'];
             const pattern = patterns[Math.floor(Math.random() * patterns.length)];
             
             this.movementPatterns.push({
                 type: pattern,
-                timestamp: brain.systemTime || Date.now(),
+                timestamp: systemCore.systemTime || Date.now(),
                 duration: 5 + Math.random() * 10,
                 intensity: 0.3 + Math.random() * 0.7
             });
@@ -674,7 +674,7 @@ export class MotorSystem {
             prioridad: parameters.prioridad || 1,
             progreso: 0,
             completado: false,
-            timestamp: brain.systemTime || Date.now(),
+            timestamp: systemCore.systemTime || Date.now(),
             resultado: null,
             esReflejo: false
         };
@@ -844,15 +844,6 @@ export class MotorSystem {
         });
     }
 
-    restoreAfterEmergency() {
-        this.applyModulation({
-            tension: -20,
-            relajacion: 20,
-            estabilidad: 15
-        });
-        console.log('✅ Sistema motor restaurado después de emergencia');
-    }
-
     applyModulation(modulation) {
         Object.keys(modulation).forEach(key => {
             if (this.state[key] !== undefined) {
@@ -925,7 +916,6 @@ export class MotorSystem {
         this.executionHistory = [];
         this.motorLearning = 0;
         this.movementPatterns = [];
-        console.log('🔄 Sistema motor reiniciado');
     }
 
     exportData() {
@@ -943,4 +933,4 @@ export class MotorSystem {
     }
 }
 
-brain.registerModule('motor', new MotorSystem());
+systemCore.registerModule('motor', new MotorSystem());
