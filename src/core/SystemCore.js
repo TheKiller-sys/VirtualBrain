@@ -227,7 +227,7 @@ export class SystemCore {
             this.updateStatistics(results);
             this.checkAlerts(results);
             this.updateConsciousness(results);
-            this.recordCycle(results); // ✅ AHORA EXISTE
+            this.recordCycle(results);
 
         } catch (error) {
             this.logSystem(`Error en ciclo de actualización: ${error.message}`, 'error');
@@ -454,7 +454,6 @@ export class SystemCore {
         }
     }
 
-    // ✅ MÉTODO AGREGADO
     recordCycle(results) {
         const cycleData = {
             timestamp: this.systemTime,
@@ -744,6 +743,103 @@ export class SystemCore {
 
     getEvents() {
         return this.eventHistory.slice(-100);
+    }
+
+    // ============ MÉTODOS PARA LA API ============
+
+    async getState() {
+        const modulesState = {};
+        for (const [name, module] of this.modules) {
+            if (module && module.getState) {
+                try {
+                    modulesState[name] = module.getState();
+                } catch (error) {
+                    modulesState[name] = { error: error.message };
+                }
+            }
+        }
+        
+        return {
+            system: {
+                stability: this.systemState.stability || 0,
+                performance: this.systemState.performance || 0,
+                consciousness: this.systemState.consciousnessLevel || 0,
+                emergency: this.systemState.emergency || false,
+                time: this.systemTime || 0,
+                cycles: this.cycleCount || 0
+            },
+            modules: modulesState,
+            timestamp: Date.now()
+        };
+    }
+
+    async getMetrics() {
+        const metrics = {
+            stability: this.systemState.stability || 0,
+            performance: this.systemState.performance || 0,
+            consciousness: this.systemState.consciousnessLevel || 0,
+            cycles: this.cycleCount || 0,
+            modules: Array.from(this.modules.keys()),
+            alerts: this.alerts?.activeAlerts?.length || 0,
+            timestamp: Date.now()
+        };
+        
+        if (this.database && typeof this.database.getSystemMetrics === 'function') {
+            try {
+                const dbMetrics = await this.database.getSystemMetrics();
+                metrics.database = dbMetrics;
+            } catch (error) {
+                metrics.databaseError = error.message;
+            }
+        }
+        
+        return metrics;
+    }
+
+    async think(options, context) {
+        const cognitive = this.modules.get('cognitive');
+        if (!cognitive) {
+            return { decision: null, confidence: 0, error: 'Cognitive module not available' };
+        }
+        
+        try {
+            const result = cognitive.processDecision(context || {}, options || []);
+            return result;
+        } catch (error) {
+            return { decision: null, confidence: 0, error: error.message };
+        }
+    }
+
+    async remember(query) {
+        const memory = this.modules.get('memory');
+        if (!memory) {
+            return { memories: [], confidence: 0, error: 'Memory module not available' };
+        }
+        
+        try {
+            const result = memory.retrieveMemory(query, {});
+            return result;
+        } catch (error) {
+            return { memories: [], confidence: 0, error: error.message };
+        }
+    }
+
+    async learn(skill, context, success) {
+        const memory = this.modules.get('memory');
+        if (!memory) {
+            return { success: false, error: 'Memory module not available' };
+        }
+        
+        try {
+            const result = memory.learnSkill(skill, context, success);
+            return result;
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    reset() {
+        this.resetSystem();
     }
 }
 
