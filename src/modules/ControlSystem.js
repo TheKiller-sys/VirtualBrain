@@ -153,13 +153,11 @@ export class ControlSystem {
         });
     }
 
-    // ✅ CORREGIDO: Verificar si window existe
+    // ✅ CORREGIDO: Solo eventos DOM cuando existe window
     setupEventListeners() {
-        // Solo en entorno de navegador
         if (typeof window !== 'undefined') {
             this.setupDOMEventListeners();
             
-            // Escuchar eventos del sistema central
             window.addEventListener('systemLog', (event) => {
                 this.handleSystemLog(event.detail);
             });
@@ -167,19 +165,10 @@ export class ControlSystem {
             window.addEventListener('systemStateChange', (event) => {
                 this.handleSystemStateChange(event.detail);
             });
-        } else {
-            // En entorno Node.js, solo eventos del sistema
-            systemCore.onEvent((event) => {
-                if (event.type === 'systemLog') {
-                    this.handleSystemLog(event.data);
-                } else if (event.type === 'systemStateChange') {
-                    this.handleSystemStateChange(event.data);
-                }
-            });
         }
+        // ✅ En Node.js, no hacemos nada - los logs ya van a consola
     }
 
-    // ✅ CORREGIDO: Verificar si document existe
     setupDOMEventListeners() {
         if (typeof document === 'undefined') return;
         
@@ -191,7 +180,6 @@ export class ControlSystem {
         });
     }
 
-    // ✅ CORREGIDO: Verificar si document existe
     setupControlButtons() {
         if (typeof document === 'undefined') return;
         
@@ -212,7 +200,6 @@ export class ControlSystem {
         });
     }
 
-    // ✅ CORREGIDO: Verificar si document existe
     setupSituationButtons() {
         if (typeof document === 'undefined') return;
         
@@ -224,7 +211,6 @@ export class ControlSystem {
         });
     }
 
-    // ✅ CORREGIDO: Verificar si document existe
     setupSequenceButtons() {
         if (typeof document === 'undefined') return;
         
@@ -236,7 +222,6 @@ export class ControlSystem {
         });
     }
 
-    // ✅ CORREGIDO: Verificar si document existe
     setupCharacterSelector() {
         if (typeof document === 'undefined') return;
         
@@ -257,7 +242,6 @@ export class ControlSystem {
             return;
         }
         
-        // ✅ Verificar si confirm existe (solo en navegador)
         if (control.confirmacion) {
             if (typeof window !== 'undefined' && window.confirm) {
                 if (window.confirm(control.mensaje || '¿Está seguro?')) {
@@ -265,7 +249,6 @@ export class ControlSystem {
                     this.lastControlAction = controlId;
                 }
             } else {
-                // En Node.js, ejecutar sin confirmación
                 control.funcion();
                 this.lastControlAction = controlId;
             }
@@ -316,7 +299,6 @@ export class ControlSystem {
 
     exportSystemData() {
         const data = systemCore.exportSystemData();
-        // ✅ Verificar si window existe
         if (typeof window !== 'undefined') {
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
@@ -334,7 +316,6 @@ export class ControlSystem {
 
     toggleAutoEvolution() {
         systemCore.autoEvolution = !systemCore.autoEvolution;
-        // ✅ Verificar si document existe
         if (typeof document !== 'undefined') {
             const button = document.getElementById('toggleAI');
             if (button) {
@@ -354,12 +335,10 @@ export class ControlSystem {
     async saveState() {
         try {
             const data = systemCore.exportSystemData();
-            // ✅ Verificar si window existe
             if (typeof window !== 'undefined') {
                 localStorage.setItem('cerebro_state', JSON.stringify(data));
                 this.addLog('Estado guardado correctamente', 'system');
             } else {
-                // En Node.js, guardar en archivo
                 const fs = await import('fs');
                 const path = await import('path');
                 const savePath = path.join(process.cwd(), 'saved_state.json');
@@ -374,7 +353,6 @@ export class ControlSystem {
     async loadState() {
         try {
             let data = null;
-            // ✅ Verificar si window existe
             if (typeof window !== 'undefined') {
                 const saved = localStorage.getItem('cerebro_state');
                 if (saved) data = JSON.parse(saved);
@@ -407,7 +385,6 @@ export class ControlSystem {
     }
 
     updateLogDisplay(logEntry) {
-        // ✅ Verificar si document existe
         if (typeof document === 'undefined') return;
         
         const logContainer = document.getElementById('systemLog');
@@ -435,7 +412,6 @@ export class ControlSystem {
     }
 
     updateCharacterDisplay() {
-        // ✅ Verificar si document existe
         if (typeof document === 'undefined') return;
         
         const systemState = systemCore.getSystemState();
@@ -451,7 +427,6 @@ export class ControlSystem {
     }
 
     updateSystemStatus() {
-        // ✅ Verificar si document existe
         if (typeof document === 'undefined') return;
         
         const systemState = systemCore.getSystemState();
@@ -465,7 +440,6 @@ export class ControlSystem {
     }
 
     updateControlStates() {
-        // ✅ Verificar si document existe
         if (typeof document === 'undefined') return;
         
         const emergencyStopBtn = document.getElementById('emergencyStop');
@@ -516,7 +490,6 @@ export class ControlSystem {
     }
 
     applyVisualizationMode() {
-        // ✅ Verificar si document existe
         if (typeof document === 'undefined') return;
         
         const body = document.body;
@@ -529,7 +502,8 @@ export class ControlSystem {
         const logEntry = { message, type, timestamp: new Date().toLocaleTimeString() };
         this.systemLogs.push(logEntry);
         if (this.systemLogs.length > 100) this.systemLogs.shift();
-        this.emitEvent('log', logEntry);
+        // ✅ En lugar de emitEvent, usamos systemCore.logSystem
+        systemCore.logSystem(message, type);
         if (this.isDebugMode) console.log(`[Control] ${message}`);
     }
 
