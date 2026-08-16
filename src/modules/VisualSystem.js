@@ -1,5 +1,5 @@
 // src/modules/VisualSystem.js
-import { brain } from '../core/SystemCore.js';
+import { systemCore } from '../core/SystemCore.js';
 
 export class VisualSystem {
     constructor() {
@@ -17,16 +17,17 @@ export class VisualSystem {
         this.isHeadless = false;
         this.renderQueue = [];
         this.frameCount = 0;
+        this.config = {};
     }
 
     async initialize(characterConfig) {
-        this.config = characterConfig;
+        this.config = characterConfig || { genotipo: 'humano' };
         this.initializeVisualState();
         this.setupVisualEffects();
         this.setupParticleSystems();
         this.setupRenderPipeline();
         this.setupCanvas();
-        console.log('🎨 Sistema visual V3.0 inicializado');
+        systemCore.logSystem('Sistema visual V3.0 inicializado');
     }
 
     initializeVisualState() {
@@ -330,19 +331,11 @@ export class VisualSystem {
 
         this.frameCount++;
 
-        // 1. Calcular estado visual
         this.calculateVisualState(input);
-        
-        // 2. Actualizar efectos visuales
         this.updateVisualEffects(input);
-        
-        // 3. Generar partículas
         this.generateParticles(input);
-        
-        // 4. Actualizar partículas
         this.updateParticles(input);
         
-        // 5. Renderizar
         if (this.canvas && this.ctx && !this.isHeadless) {
             this.render();
         }
@@ -657,7 +650,7 @@ export class VisualSystem {
     }
 
     updateParticles(input) {
-        const time = brain.systemTime || Date.now();
+        const time = systemCore.systemTime || Date.now();
         const width = this.canvas?.width || 800;
         const height = this.canvas?.height || 500;
         const centerX = width / 2;
@@ -714,7 +707,7 @@ export class VisualSystem {
     }
 
     renderBackgroundStars(ctx, width, height) {
-        const time = brain.systemTime || Date.now();
+        const time = systemCore.systemTime || Date.now();
         const stars = this.getBackgroundStars(width, height);
         stars.forEach(star => {
             const twinkle = 0.5 + 0.5 * Math.sin(time * 2 + star.phase);
@@ -804,7 +797,7 @@ export class VisualSystem {
     }
 
     applyDynamicTransformations(ctx) {
-        const time = brain.systemTime || Date.now();
+        const time = systemCore.systemTime || Date.now();
         const pulseScale = this.visualState.pulso + Math.sin(time * 2 + this.visualState.pulsePhase) * 0.08;
         ctx.scale(pulseScale, pulseScale);
         const oscillation = Math.sin(time * 3 + this.visualState.pulsePhase) * this.visualState.oscilacion * 0.1;
@@ -853,7 +846,7 @@ export class VisualSystem {
     }
 
     drawShimmer(ctx, radius) {
-        const time = brain.systemTime || Date.now();
+        const time = systemCore.systemTime || Date.now();
         const shimmerIntensity = this.visualState.shimmer * 0.5;
         for (let i = 0; i < 3; i++) {
             const angle = time * 0.5 + i * 2.1;
@@ -871,7 +864,7 @@ export class VisualSystem {
     }
 
     drawRipple(ctx, radius) {
-        const time = brain.systemTime || Date.now();
+        const time = systemCore.systemTime || Date.now();
         const rippleIntensity = this.visualState.ripple;
         for (let i = 0; i < 3; i++) {
             const waveRadius = radius * (0.6 + i * 0.2) + Math.sin(time * 1.5 + i) * radius * 0.1;
@@ -1130,7 +1123,7 @@ export class VisualSystem {
         ctx.beginPath();
         ctx.arc(0, 0, radius * 1.5, 0, Math.PI * 2);
         ctx.fill();
-        const pulse = 1 + Math.sin((brain.systemTime || Date.now()) * 1.5) * 0.05;
+        const pulse = 1 + Math.sin((systemCore.systemTime || Date.now()) * 1.5) * 0.05;
         ctx.strokeStyle = color + `${Math.floor(intensity * 40).toString(16).padStart(2, '0')}`;
         ctx.lineWidth = 2 * intensity;
         ctx.beginPath();
@@ -1163,7 +1156,7 @@ export class VisualSystem {
     renderEffects(ctx, width, height) {
         const intensity = this.visualState.intensidadVisual;
         if (this.visualState.energiaVisual > 0.3) {
-            const time = brain.systemTime || Date.now();
+            const time = systemCore.systemTime || Date.now();
             const centerX = width / 2;
             const centerY = height / 2;
             for (let i = 0; i < 8; i++) {
@@ -1186,7 +1179,7 @@ export class VisualSystem {
             ctx.fillRect(0, 0, width, height);
         }
         if (this.visualState.textura > 0.3) {
-            const time = brain.systemTime || Date.now();
+            const time = systemCore.systemTime || Date.now();
             const texIntensity = this.visualState.textura * 0.3;
             for (let i = 0; i < 30; i++) {
                 const x = (Math.sin(time * 0.1 + i * 1.7) * 0.5 + 0.5) * width;
@@ -1291,7 +1284,6 @@ export class VisualSystem {
         this.visualCache = {};
         this.interactionZones = [];
         this.renderQueue = [];
-        console.log('🔄 Sistema visual reiniciado');
     }
 
     exportData() {
@@ -1305,4 +1297,4 @@ export class VisualSystem {
     }
 }
 
-brain.registerModule('visual', new VisualSystem());
+systemCore.registerModule('visual', new VisualSystem());
