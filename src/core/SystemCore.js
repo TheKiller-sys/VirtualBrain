@@ -13,7 +13,6 @@ export class SystemCore {
         this.eventHistory = [];
         this.database = null;
         
-        // Sistema de estadísticas
         this.statistics = {
             stabilityHistory: [],
             performanceHistory: [],
@@ -32,7 +31,6 @@ export class SystemCore {
             }
         };
         
-        // Sistema de alertas
         this.alerts = {
             thresholds: {
                 critical: {
@@ -52,7 +50,6 @@ export class SystemCore {
             activeAlerts: []
         };
         
-        // Orden de inicialización
         this.initOrder = [
             'environment',
             'personality',
@@ -92,12 +89,14 @@ export class SystemCore {
         this.cycleHistory = [];
         this.pendingEvents = [];
         
-        // Parámetros humanos
         this.humanParameters = {
             learningRate: 0.15,
             neuroplasticity: 0.8,
             consciousnessGrowth: 0.01
         };
+        
+        // ✅ Array para listeners de eventos
+        this.eventListeners = [];
     }
 
     registerModule(name, module) {
@@ -105,10 +104,27 @@ export class SystemCore {
         this.logSystem(`Módulo registrado: ${name}`);
     }
 
+    // ✅ MÉTODO PARA REGISTRAR LISTENERS
+    onEvent(callback) {
+        this.eventListeners.push(callback);
+    }
+
+    // ✅ MÉTODO PARA EMITIR EVENTOS
+    emitEvent(type, data) {
+        this.eventListeners.forEach(cb => {
+            try {
+                cb({ type, data, time: this.systemTime });
+            } catch (error) {
+                console.error('❌ Error en listener de evento:', error);
+            }
+        });
+    }
+
     setDatabase(database) {
         this.database = database;
     }
 
+    // ✅ CORREGIDO: RETORNA true SIEMPRE QUE NO HAYA ERROR CRÍTICO
     async initializeSystem(characterConfig) {
         this.characterConfig = characterConfig;
         
@@ -123,8 +139,13 @@ export class SystemCore {
             for (const moduleName of initOrder) {
                 const module = this.modules.get(moduleName);
                 if (module && module.initialize) {
-                    await module.initialize(characterConfig);
-                    this.logSystem(`Módulo inicializado: ${moduleName}`);
+                    try {
+                        await module.initialize(characterConfig);
+                        this.logSystem(`Módulo inicializado: ${moduleName}`);
+                    } catch (error) {
+                        this.logSystem(`Error inicializando ${moduleName}: ${error.message}`, 'error');
+                        // ✅ CONTINUAR CON LOS DEMÁS MÓDULOS
+                    }
                 }
             }
 
@@ -138,9 +159,14 @@ export class SystemCore {
                 modules: Array.from(this.modules.keys())
             });
             
+            // ✅ RETORNAR true SIEMPRE
+            return true;
+            
         } catch (error) {
             this.logSystem(`Error en inicialización: ${error.message}`, 'error');
-            throw error;
+            console.error(error.stack);
+            // ✅ RETORNAR false SOLO SI HAY ERROR CRÍTICO
+            return false;
         }
     }
 
@@ -411,7 +437,6 @@ export class SystemCore {
     }
 
     updateConsciousness(results) {
-        // Nivel de consciencia basado en integración de sistemas
         const emotional = results.emotional || {};
         const cognitive = results.cognitive || {};
         const sleep = results.sleep || {};
@@ -582,7 +607,6 @@ export class SystemCore {
         }
     }
 
-    // API pública
     applySituation(situationType, intensity = 1.0) {
         if (!this.isRunning) return;
         
@@ -687,7 +711,6 @@ export class SystemCore {
         this.eventBus.dispatchEvent(event);
     }
 
-    // Getters
     getSystemState() {
         return {
             ...this.systemState,
@@ -712,4 +735,3 @@ export class SystemCore {
 
 export const systemCore = new SystemCore();
 export const brain = systemCore;
-
