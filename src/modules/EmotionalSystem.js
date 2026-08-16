@@ -805,4 +805,167 @@ export class EmotionalSystem {
             },
             'recompensa': { 
                 alegria: 35 * intensity, 
-                gratitud
+                gratitud: 20 * intensity,
+                valencia: 0.4 * intensity,
+                satisfaccion: 15 * intensity,
+                esperanza: 10 * intensity
+            },
+            'alegria': { 
+                alegria: 45 * intensity, 
+                euforia: 15 * intensity,
+                valencia: 0.5 * intensity,
+                bienestar: 20 * intensity,
+                esperanza: 15 * intensity
+            },
+            'tristeza': { 
+                tristeza: 40 * intensity, 
+                depresion: 20 * intensity,
+                valencia: -0.4 * intensity,
+                bienestar: -15 * intensity,
+                nostalgia: 10 * intensity
+            },
+            'miedo': { 
+                miedo: 50 * intensity, 
+                ansiedad: 35 * intensity,
+                activacion: 0.6 * intensity,
+                confianza: -20 * intensity,
+                estabilidad: -10 * intensity
+            },
+            'ira': { 
+                ira: 45 * intensity, 
+                activacion: 0.5 * intensity,
+                valencia: -0.3 * intensity,
+                estabilidad: -15 * intensity,
+                frustracion: 20 * intensity
+            },
+            'confianza': { 
+                confianza: 40 * intensity, 
+                alegria: 20 * intensity,
+                estabilidad: 15 * intensity,
+                conexion: 25 * intensity,
+                aceptacion: 15 * intensity
+            },
+            'sorpresa': { 
+                sorpresa: 35 * intensity, 
+                activacion: 0.4 * intensity,
+                complejidad: 0.2 * intensity,
+                valencia: 0.2 * intensity
+            },
+            'interaccion_social': { 
+                confianza: 30 * intensity, 
+                alegria: 25 * intensity,
+                valencia: 0.3 * intensity,
+                conexion: 35 * intensity,
+                gratitud: 20 * intensity
+            },
+            'estres_alto': {
+                miedo: 20 * intensity,
+                ansiedad: 25 * intensity,
+                ira: 15 * intensity,
+                estabilidad: -20 * intensity,
+                bienestar: -15 * intensity,
+                frustracion: 15 * intensity
+            },
+            'recuperacion': {
+                ansiedad: -20 * intensity,
+                miedo: -15 * intensity,
+                estabilidad: 25 * intensity,
+                bienestar: 20 * intensity,
+                confianza: 15 * intensity,
+                esperanza: 15 * intensity
+            },
+            'nostalgia': {
+                nostalgia: 30 * intensity,
+                tristeza: 10 * intensity,
+                valencia: 0.1 * intensity,
+                aceptacion: 10 * intensity
+            },
+            'logro': {
+                orgullo: 35 * intensity,
+                satisfaccion: 25 * intensity,
+                realizacion: 20 * intensity,
+                esperanza: 15 * intensity
+            },
+            'fracaso': {
+                frustracion: 30 * intensity,
+                tristeza: 20 * intensity,
+                confianza: -15 * intensity,
+                orgullo: -20 * intensity
+            }
+        };
+
+        return effectsMap[situationType] || {};
+    }
+
+    emergencyProtocol() {
+        this.applyModulation({
+            miedo: -50,
+            ira: -40,
+            ansiedad: -60,
+            activacion: -0.5,
+            estabilidad: 30,
+            resiliencia: 20,
+            bienestar: 20,
+            regulacion: 0.3,
+            frustracion: -20
+        });
+        
+        this.emitEvent('emergency', {
+            type: 'emotional_emergency',
+            state: { ...this.state }
+        });
+    }
+
+    applyModulation(modulation) {
+        Object.keys(modulation).forEach(key => {
+            if (this.state[key] !== undefined) {
+                const current = this.state[key] || 0;
+                const change = modulation[key];
+                if (typeof current === 'number') {
+                    this.state[key] = this.clamp(current + change, 0, 100);
+                }
+            }
+        });
+    }
+
+    getState() {
+        return { ...this.state };
+    }
+
+    getEmotionalMemory() {
+        return [...this.emotionalMemory];
+    }
+
+    getEmotionalHistory() {
+        return this.emotionalHistory.slice(-100);
+    }
+
+    getActivePatterns() {
+        return [...this.activePatterns];
+    }
+
+    clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    reset() {
+        this.initializeState();
+        this.activePatterns = [];
+        this.emotionalMemory = [];
+        this.emotionalHistory = [];
+        this.emotionCache = {};
+    }
+
+    exportData() {
+        return {
+            state: this.getState(),
+            emotionalProfile: this.emotionalProfile,
+            emotionalMemory: this.emotionalMemory.slice(-50),
+            emotionalHistory: this.getEmotionalHistory(),
+            activePatterns: this.getActivePatterns(),
+            analysis: this.getEmotionalAnalysis()
+        };
+    }
+}
+
+systemCore.registerModule('emotional', new EmotionalSystem());
