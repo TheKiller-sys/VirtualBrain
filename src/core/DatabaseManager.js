@@ -8,7 +8,7 @@ import fs from 'fs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export class DatabaseManager {
+class DatabaseManager {
     constructor() {
         this.db = null;
         this.isInitialized = false;
