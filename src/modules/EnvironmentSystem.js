@@ -1,9 +1,10 @@
 // src/modules/EnvironmentSystem.js
-import { brain } from '../core/SystemCore.js';
+import { systemCore } from '../core/SystemCore.js';
 
 export class EnvironmentSystem {
     constructor() {
         this.state = {};
+        this.config = {};
         this.eventListeners = [];
         this.environmentalPatterns = [];
         this.lastUpdateTime = 0;
@@ -12,10 +13,10 @@ export class EnvironmentSystem {
     }
 
     async initialize(characterConfig) {
-        this.config = characterConfig;
+        this.config = characterConfig || { genotipo: 'humano' };
         this.initializeState();
         this.setupEnvironmentalPatterns();
-        console.log('🌍 Sistema de entorno V3.0 inicializado');
+        systemCore.logSystem('Sistema de entorno V3.0 inicializado');
     }
 
     initializeState() {
@@ -41,7 +42,7 @@ export class EnvironmentSystem {
         };
         this.environmentHistory = [];
         this.environmentalPatterns = [];
-        this.lastUpdateTime = brain.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime || Date.now();
         this.currentPattern = null;
     }
 
@@ -71,7 +72,7 @@ export class EnvironmentSystem {
     }
 
     update(input, deltaTime) {
-        this.lastUpdateTime = brain.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime || Date.now();
         this.applyNaturalChanges(deltaTime);
         this.processEnvironmentalPatterns(deltaTime);
         this.recordHistory();
@@ -188,7 +189,6 @@ export class EnvironmentSystem {
         this.initializeState();
         this.currentPattern = null;
         this.environmentHistory = [];
-        console.log('🔄 Sistema de entorno reiniciado');
     }
 
     exportData() {
@@ -201,4 +201,4 @@ export class EnvironmentSystem {
     }
 }
 
-brain.registerModule('environment', new EnvironmentSystem());
+systemCore.registerModule('environment', new EnvironmentSystem());
