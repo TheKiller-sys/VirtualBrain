@@ -11,14 +11,11 @@
             background: #0a0a1a;
             color: #e0e0e0;
             min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
             padding: 20px;
         }
         .container {
             max-width: 1200px;
-            width: 100%;
+            margin: 0 auto;
             background: rgba(20, 20, 40, 0.9);
             border-radius: 20px;
             padding: 30px;
@@ -62,10 +59,10 @@
             font-weight: bold;
             margin-top: 5px;
         }
-        .status-card .value.consciousness { color: #00d4ff; }
-        .status-card .value.stability { color: #00ff88; }
-        .status-card .value.performance { color: #ffd700; }
-        .status-card .value.age { color: #ff6b6b; }
+        .value.consciousness { color: #00d4ff; }
+        .value.stability { color: #00ff88; }
+        .value.performance { color: #ffd700; }
+        .value.emergency { color: #ff4444; }
         
         .metrics-grid {
             display: grid;
@@ -118,16 +115,10 @@
             color: #ff4444;
             border-color: rgba(255, 50, 50, 0.1);
         }
-        .controls button.danger:hover {
-            background: rgba(255, 50, 50, 0.25);
-        }
         .controls button.success {
             background: rgba(0, 255, 100, 0.15);
             color: #00ff88;
             border-color: rgba(0, 255, 100, 0.1);
-        }
-        .controls button.success:hover {
-            background: rgba(0, 255, 100, 0.25);
         }
         
         .log-container {
@@ -151,14 +142,25 @@
             margin-right: 10px;
         }
         .log-entry .message { color: #aaaacc; }
-        .log-entry .message.important { color: #ffd700; }
-        .log-entry .message.error { color: #ff4444; }
+        .log-entry .error { color: #ff4444; }
+        .log-entry .warning { color: #ffaa00; }
+        .log-entry .success { color: #00ff88; }
         
         .footer {
             text-align: center;
             margin-top: 20px;
             color: #444466;
             font-size: 0.8em;
+        }
+        
+        .error-msg {
+            background: rgba(255, 50, 50, 0.1);
+            border: 1px solid rgba(255, 50, 50, 0.3);
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            color: #ff6666;
+            margin: 20px 0;
         }
         
         @media (max-width: 600px) {
@@ -172,83 +174,100 @@
 <body>
     <div class="container">
         <h1>🧠 Cerebro Digital V3.0</h1>
-        <p class="subtitle">Sistema de consciencia artificial con base de datos</p>
+        <p class="subtitle">Sistema de consciencia artificial con evolución autónoma</p>
+        
+        <div id="errorMsg" class="error-msg" style="display:none;">
+            ⚠️ Error conectando con el cerebro. La API no está respondiendo.
+        </div>
         
         <div class="status-grid" id="statusGrid">
             <div class="status-card">
                 <div class="label">Consciencia</div>
-                <div class="value consciousness" id="consciousness">0.0%</div>
+                <div class="value consciousness" id="consciousness">--%</div>
             </div>
             <div class="status-card">
                 <div class="label">Estabilidad</div>
-                <div class="value stability" id="stability">0.0%</div>
+                <div class="value stability" id="stability">--%</div>
             </div>
             <div class="status-card">
                 <div class="label">Rendimiento</div>
-                <div class="value performance" id="performance">0.0%</div>
+                <div class="value performance" id="performance">--%</div>
             </div>
             <div class="status-card">
-                <div class="label">Edad Biológica</div>
-                <div class="value age" id="age">0.0</div>
+                <div class="label">Estado</div>
+                <div class="value" id="systemStatus" style="color:#ffaa00;">⏳ Cargando...</div>
             </div>
         </div>
         
         <div class="metrics-grid" id="metricsGrid">
             <div class="metric-item">
-                <div class="label">Estado</div>
-                <div class="value" id="systemStatus">⏳ Iniciando...</div>
-            </div>
-            <div class="metric-item">
                 <div class="label">Ciclos</div>
-                <div class="value" id="cycles">0</div>
+                <div class="value" id="cycles">--</div>
             </div>
             <div class="metric-item">
-                <div class="label">Memorias</div>
-                <div class="value" id="memories">0</div>
+                <div class="label">Módulos</div>
+                <div class="value" id="modules">--</div>
             </div>
             <div class="metric-item">
-                <div class="label">Emoción Dominante</div>
-                <div class="value" id="dominantEmotion">neutral</div>
+                <div class="label">Alertas</div>
+                <div class="value" id="alerts">--</div>
+            </div>
+            <div class="metric-item">
+                <div class="label">Emoción</div>
+                <div class="value" id="dominantEmotion">--</div>
             </div>
         </div>
         
         <div class="controls">
-            <button onclick="applySituation('recompensa')">🎁 Recompensa</button>
-            <button onclick="applySituation('amenaza')">⚠️ Amenaza</button>
-            <button onclick="applySituation('alegria')">😄 Alegría</button>
+            <button onclick="applySituation('recompensa')" class="success">🎁 Recompensa</button>
+            <button onclick="applySituation('amenaza')" class="danger">⚠️ Amenaza</button>
+            <button onclick="applySituation('alegria')" class="success">😄 Alegría</button>
             <button onclick="applySituation('tristeza')">😢 Tristeza</button>
-            <button onclick="applySituation('descanso')">😴 Descanso</button>
-            <button onclick="applySituation('desafio')">💪 Desafío</button>
-            <button onclick="applySituation('inspiracion')">✨ Inspiración</button>
-            <button class="danger" onclick="applySituation('estres_alto')">🔥 Estrés</button>
-            <button class="success" onclick="think()">🤔 Pensar</button>
-            <button class="danger" onclick="resetSystem()">🔄 Reset</button>
+            <button onclick="applySituation('reposo')" class="success">😴 Descanso</button>
+            <button onclick="applySituation('estres_alto')" class="danger">🔥 Estrés</button>
+            <button onclick="think()">🤔 Pensar</button>
         </div>
         
         <div class="log-container" id="logContainer">
             <div class="log-entry">
                 <span class="time">[SISTEMA]</span>
-                <span class="message">Cerebro Digital V3.0 inicializado</span>
+                <span class="message">Cerebro Digital V3.0 conectado</span>
             </div>
         </div>
         
         <div class="footer">
-            Cerebro Digital V3.0 • API en /api • Base de datos SQLite
+            Cerebro Digital V3.0 • API en /api • Evolución autónoma
         </div>
     </div>
     
     <script>
-        let lastLogTime = Date.now();
+        let errorCount = 0;
         
         async function fetchState() {
             try {
                 const response = await fetch('/api/state');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
                 const data = await response.json();
                 if (data.success) {
                     updateUI(data);
+                    document.getElementById('errorMsg').style.display = 'none';
+                    errorCount = 0;
+                } else {
+                    throw new Error('API returned success: false');
                 }
             } catch (error) {
                 console.error('Error fetching state:', error);
+                errorCount++;
+                document.getElementById('errorMsg').style.display = 'block';
+                document.getElementById('systemStatus').textContent = '⚠️ Error';
+                document.getElementById('systemStatus').style.color = '#ff4444';
+                
+                if (errorCount > 10) {
+                    document.getElementById('errorMsg').textContent = 
+                        '⚠️ No se puede conectar con el cerebro. Verifica que el servidor esté funcionando.';
+                }
             }
         }
         
@@ -256,28 +275,26 @@
             const state = data.state;
             const metrics = data.metrics;
             
-            document.getElementById('consciousness').textContent = 
-                `${(state.system.consciousness * 100).toFixed(1)}%`;
-            document.getElementById('stability').textContent = 
-                `${(state.system.stability * 100).toFixed(1)}%`;
-            document.getElementById('performance').textContent = 
-                `${(state.system.performance * 100).toFixed(1)}%`;
-            document.getElementById('age').textContent = 
-                state.system.age.toFixed(1);
+            if (state.system) {
+                document.getElementById('consciousness').textContent = 
+                    `${((state.system.consciousness || 0) * 100).toFixed(1)}%`;
+                document.getElementById('stability').textContent = 
+                    `${((state.system.stability || 0) * 100).toFixed(1)}%`;
+                document.getElementById('performance').textContent = 
+                    `${((state.system.performance || 0) * 100).toFixed(1)}%`;
+                
+                const status = state.system.emergency ? '🚨 EMERGENCIA' : '✅ Operativo';
+                document.getElementById('systemStatus').textContent = status;
+                document.getElementById('systemStatus').style.color = 
+                    state.system.emergency ? '#ff4444' : '#00ff88';
+                
+                document.getElementById('cycles').textContent = state.system.cycles || 0;
+                document.getElementById('modules').textContent = state.modules?.length || 0;
+                document.getElementById('alerts').textContent = state.activeAlerts || 0;
+            }
             
-            document.getElementById('systemStatus').textContent = 
-                state.system.emergency ? '🚨 EMERGENCIA' : '✅ Operativo';
-            document.getElementById('systemStatus').style.color = 
-                state.system.emergency ? '#ff4444' : '#00ff88';
-            
-            document.getElementById('cycles').textContent = 
-                state.system.cycles || 0;
-            document.getElementById('memories').textContent = 
-                metrics.memorias || 0;
-            
-            if (metrics.emocion_dominante) {
-                document.getElementById('dominantEmotion').textContent = 
-                    metrics.emocion_dominante;
+            if (metrics && metrics.emocion_dominante) {
+                document.getElementById('dominantEmotion').textContent = metrics.emocion_dominante;
             }
         }
         
@@ -290,11 +307,14 @@
                 });
                 const data = await response.json();
                 if (data.success) {
-                    addLog(`Situación aplicada: ${type}`, 'important');
+                    addLog(`✅ Situación aplicada: ${type}`, 'success');
                     fetchState();
+                } else {
+                    addLog(`❌ Error: ${data.error || 'desconocido'}`, 'error');
                 }
             } catch (error) {
                 console.error('Error applying situation:', error);
+                addLog(`❌ Error: ${error.message}`, 'error');
             }
         }
         
@@ -316,24 +336,13 @@
                 });
                 const data = await response.json();
                 if (data.success) {
-                    addLog(`🤔 Decisión: ${data.decision} (confianza: ${(data.confidence * 100).toFixed(1)}%)`, 'important');
+                    addLog(`🤔 Decisión: ${data.decision} (confianza: ${(data.confidence * 100).toFixed(1)}%)`, 'success');
+                } else {
+                    addLog(`❌ Error: ${data.error || 'desconocido'}`, 'error');
                 }
             } catch (error) {
                 console.error('Error thinking:', error);
-            }
-        }
-        
-        async function resetSystem() {
-            if (!confirm('¿Estás seguro de reiniciar el cerebro?')) return;
-            try {
-                const response = await fetch('/api/reset', { method: 'POST' });
-                const data = await response.json();
-                if (data.success) {
-                    addLog('🔄 Sistema reiniciado', 'error');
-                    fetchState();
-                }
-            } catch (error) {
-                console.error('Error resetting system:', error);
+                addLog(`❌ Error: ${error.message}`, 'error');
             }
         }
         
@@ -356,24 +365,6 @@
         // Inicializar
         fetchState();
         setInterval(fetchState, 2000);
-        
-        // Logs del sistema
-        if (window.EventSource) {
-            // Simular logs
-            setInterval(() => {
-                const messages = [
-                    'Procesando pensamientos...',
-                    'Consolidando memorias...',
-                    'Regulando emociones...',
-                    'Manteniendo homeostasis...',
-                    'Evolucionando personalidad...'
-                ];
-                const msg = messages[Math.floor(Math.random() * messages.length)];
-                if (Math.random() < 0.3) {
-                    addLog(msg);
-                }
-            }, 5000);
-        }
         
         console.log('🧠 Cerebro Digital V3.0 - Interfaz cargada');
         console.log('📊 API disponible en /api');
