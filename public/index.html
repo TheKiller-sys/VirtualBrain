@@ -205,7 +205,7 @@
                 <div class="value" id="cycles">--</div>
             </div>
             <div class="metric-item">
-                <div class="label">Módulos</div>
+                <div class="label">Módulos Activos</div>
                 <div class="value" id="modules">--</div>
             </div>
             <div class="metric-item">
@@ -213,7 +213,7 @@
                 <div class="value" id="alerts">--</div>
             </div>
             <div class="metric-item">
-                <div class="label">Emoción</div>
+                <div class="label">Emoción Dominante</div>
                 <div class="value" id="dominantEmotion">--</div>
             </div>
         </div>
@@ -275,7 +275,8 @@
             const state = data.state;
             const metrics = data.metrics;
             
-            if (state.system) {
+            if (state && state.system) {
+                // Actualizar tarjetas de estado
                 document.getElementById('consciousness').textContent = 
                     `${((state.system.consciousness || 0) * 100).toFixed(1)}%`;
                 document.getElementById('stability').textContent = 
@@ -288,14 +289,54 @@
                 document.getElementById('systemStatus').style.color = 
                     state.system.emergency ? '#ff4444' : '#00ff88';
                 
+                // Actualizar métricas
                 document.getElementById('cycles').textContent = state.system.cycles || 0;
-                document.getElementById('modules').textContent = state.modules?.length || 0;
-                document.getElementById('alerts').textContent = state.activeAlerts || 0;
+                
+                // ✅ CORREGIDO: Contar módulos correctamente
+                const modules = state.modules || {};
+                const moduleCount = Object.keys(modules).length;
+                document.getElementById('modules').textContent = moduleCount > 0 ? moduleCount : '--';
+                
+                document.getElementById('alerts').textContent = state.system.alerts || 0;
             }
             
+            // ✅ CORREGIDO: Mostrar emoción dominante
+            let emotion = '--';
+            
+            // 1. Buscar en metrics.emocion_dominante
             if (metrics && metrics.emocion_dominante) {
-                document.getElementById('dominantEmotion').textContent = metrics.emocion_dominante;
+                emotion = metrics.emocion_dominante;
             }
+            // 2. Buscar en state.modules.emotional
+            else if (state && state.modules && state.modules.emotional) {
+                const emotional = state.modules.emotional;
+                const emotions = ['alegria', 'tristeza', 'miedo', 'ira', 'confianza'];
+                let max = 0;
+                let dominant = 'neutral';
+                emotions.forEach(e => {
+                    if (emotional[e] && emotional[e] > max) {
+                        max = emotional[e];
+                        dominant = e;
+                    }
+                });
+                if (max > 0) emotion = dominant;
+            }
+            // 3. Buscar en metrics.database.emocion_dominante
+            else if (metrics && metrics.database && metrics.database.emocion_dominante) {
+                emotion = metrics.database.emocion_dominante;
+            }
+            
+            document.getElementById('dominantEmotion').textContent = emotion;
+            
+            // Log de depuración
+            console.log('✅ UI actualizada:', {
+                consciousness: document.getElementById('consciousness').textContent,
+                stability: document.getElementById('stability').textContent,
+                performance: document.getElementById('performance').textContent,
+                cycles: document.getElementById('cycles').textContent,
+                modules: document.getElementById('modules').textContent,
+                emotion: document.getElementById('dominantEmotion').textContent
+            });
         }
         
         async function applySituation(type) {
@@ -363,11 +404,11 @@
         }
         
         // Inicializar
-        fetchState();
-        setInterval(fetchState, 2000);
-        
         console.log('🧠 Cerebro Digital V3.0 - Interfaz cargada');
         console.log('📊 API disponible en /api');
+        
+        fetchState();
+        setInterval(fetchState, 2000);
     </script>
 </body>
 </html>
