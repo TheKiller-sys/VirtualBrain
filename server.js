@@ -233,6 +233,121 @@ app.get('/api/health', async (req, res) => {
     }
 });
 
+// Obtener análisis completo
+app.get('/api/analysis/full', async (req, res) => {
+    try {
+        const metrics = await brain.database.getAdvancedMetrics();
+        res.json({ success: true, metrics });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Obtener correlaciones
+app.get('/api/analysis/correlations', async (req, res) => {
+    try {
+        const { v1, v2, period } = req.query;
+        const correlations = await brain.database.findCorrelations(v1, v2, period || 'day');
+        res.json({ success: true, correlations });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Obtener anomalías
+app.get('/api/analysis/anomalies', async (req, res) => {
+    try {
+        const threshold = parseFloat(req.query.threshold) || 2.5;
+        const anomalies = await brain.database.detectAnomalies(threshold);
+        res.json({ success: true, anomalies });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Obtener predicciones
+app.get('/api/analysis/predict', async (req, res) => {
+    try {
+        const { variable, horizon } = req.query;
+        const prediction = await brain.database.predictFuture(variable, parseInt(horizon) || 10);
+        res.json({ success: true, prediction });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Obtener tendencias
+app.get('/api/analysis/trends', async (req, res) => {
+    try {
+        const { variable, period } = req.query;
+        const trends = await brain.database.analyzeTrends(variable, period || 'day');
+        res.json({ success: true, trends });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Obtener estadísticas completas
+app.get('/api/analysis/stats', async (req, res) => {
+    try {
+        const stats = await brain.database.quickStats();
+        res.json({ success: true, stats });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Exportar datos
+app.get('/api/export/db', async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 1000;
+        const data = await brain.database.exportToJSON(limit);
+        res.json({ success: true, data });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Obtener salud del sistema
+app.get('/api/health/report', async (req, res) => {
+    try {
+        const report = await brain.database.getSystemHealthReport();
+        res.json({ success: true, report });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Obtener insights de personalidad
+app.get('/api/personality/insights', async (req, res) => {
+    try {
+        const insights = await brain.database.getPersonalityInsights();
+        res.json({ success: true, insights });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Obtener análisis de sueño
+app.get('/api/sleep/analysis', async (req, res) => {
+    try {
+        const analysis = await brain.database.getSleepAnalysis();
+        res.json({ success: true, analysis });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Obtener patrones cognitivos
+app.get('/api/cognitive/patterns', async (req, res) => {
+    try {
+        const patterns = await brain.database.getCognitiveFlow();
+        res.json({ success: true, patterns });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // ============ INICIAR CEREBRO ============
 
 async function startBrain() {
