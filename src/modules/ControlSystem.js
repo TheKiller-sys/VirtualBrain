@@ -153,21 +153,36 @@ export class ControlSystem {
         });
     }
 
+    // ✅ CORREGIDO: Verificar si window existe
     setupEventListeners() {
-        if (typeof document !== 'undefined') {
+        // Solo en entorno de navegador
+        if (typeof window !== 'undefined') {
             this.setupDOMEventListeners();
+            
+            // Escuchar eventos del sistema central
+            window.addEventListener('systemLog', (event) => {
+                this.handleSystemLog(event.detail);
+            });
+            
+            window.addEventListener('systemStateChange', (event) => {
+                this.handleSystemStateChange(event.detail);
+            });
+        } else {
+            // En entorno Node.js, solo eventos del sistema
+            systemCore.onEvent((event) => {
+                if (event.type === 'systemLog') {
+                    this.handleSystemLog(event.data);
+                } else if (event.type === 'systemStateChange') {
+                    this.handleSystemStateChange(event.data);
+                }
+            });
         }
-        
-        window.addEventListener('systemLog', (event) => {
-            this.handleSystemLog(event.detail);
-        });
-        
-        window.addEventListener('systemStateChange', (event) => {
-            this.handleSystemStateChange(event.detail);
-        });
     }
 
+    // ✅ CORREGIDO: Verificar si document existe
     setupDOMEventListeners() {
+        if (typeof document === 'undefined') return;
+        
         document.addEventListener('DOMContentLoaded', () => {
             this.setupControlButtons();
             this.setupSituationButtons();
@@ -176,7 +191,10 @@ export class ControlSystem {
         });
     }
 
+    // ✅ CORREGIDO: Verificar si document existe
     setupControlButtons() {
+        if (typeof document === 'undefined') return;
+        
         const controlSelectors = {
             '#resetSystem': 'reset_system',
             '#exportData': 'export_data',
@@ -194,7 +212,10 @@ export class ControlSystem {
         });
     }
 
+    // ✅ CORREGIDO: Verificar si document existe
     setupSituationButtons() {
+        if (typeof document === 'undefined') return;
+        
         document.addEventListener('click', (event) => {
             if (event.target.classList.contains('situation-btn')) {
                 const situation = event.target.dataset.situation;
@@ -203,7 +224,10 @@ export class ControlSystem {
         });
     }
 
+    // ✅ CORREGIDO: Verificar si document existe
     setupSequenceButtons() {
+        if (typeof document === 'undefined') return;
+        
         document.addEventListener('click', (event) => {
             if (event.target.classList.contains('sequence-btn')) {
                 const sequence = event.target.dataset.sequence;
@@ -212,7 +236,10 @@ export class ControlSystem {
         });
     }
 
+    // ✅ CORREGIDO: Verificar si document existe
     setupCharacterSelector() {
+        if (typeof document === 'undefined') return;
+        
         const selector = document.getElementById('characterSelect');
         const applyButton = document.getElementById('applyCharacter');
         
@@ -230,8 +257,15 @@ export class ControlSystem {
             return;
         }
         
+        // ✅ Verificar si confirm existe (solo en navegador)
         if (control.confirmacion) {
-            if (confirm(control.mensaje || '¿Está seguro?')) {
+            if (typeof window !== 'undefined' && window.confirm) {
+                if (window.confirm(control.mensaje || '¿Está seguro?')) {
+                    control.funcion();
+                    this.lastControlAction = controlId;
+                }
+            } else {
+                // En Node.js, ejecutar sin confirmación
                 control.funcion();
                 this.lastControlAction = controlId;
             }
@@ -282,22 +316,30 @@ export class ControlSystem {
 
     exportSystemData() {
         const data = systemCore.exportSystemData();
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `sistema_nervioso_${Date.now()}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
+        // ✅ Verificar si window existe
+        if (typeof window !== 'undefined') {
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `sistema_nervioso_${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        } else {
+            console.log('📊 Datos exportados (JSON):', JSON.stringify(data, null, 2));
+        }
         this.addLog('Datos del sistema exportados', 'system');
         return data;
     }
 
     toggleAutoEvolution() {
         systemCore.autoEvolution = !systemCore.autoEvolution;
-        const button = document.getElementById('toggleAI');
-        if (button) {
-            button.textContent = `🤖 Auto-evolución: ${systemCore.autoEvolution ? 'ON' : 'OFF'}`;
+        // ✅ Verificar si document existe
+        if (typeof document !== 'undefined') {
+            const button = document.getElementById('toggleAI');
+            if (button) {
+                button.textContent = `🤖 Auto-evolución: ${systemCore.autoEvolution ? 'ON' : 'OFF'}`;
+            }
         }
         this.addLog(`Auto-evolución ${systemCore.autoEvolution ? 'activada' : 'desactivada'}`, 'system');
         return systemCore.autoEvolution;
@@ -312,9 +354,17 @@ export class ControlSystem {
     async saveState() {
         try {
             const data = systemCore.exportSystemData();
+            // ✅ Verificar si window existe
             if (typeof window !== 'undefined') {
                 localStorage.setItem('cerebro_state', JSON.stringify(data));
                 this.addLog('Estado guardado correctamente', 'system');
+            } else {
+                // En Node.js, guardar en archivo
+                const fs = await import('fs');
+                const path = await import('path');
+                const savePath = path.join(process.cwd(), 'saved_state.json');
+                fs.writeFileSync(savePath, JSON.stringify(data, null, 2));
+                this.addLog(`Estado guardado en ${savePath}`, 'system');
             }
         } catch (error) {
             this.addLog(`Error guardando estado: ${error.message}`, 'error');
@@ -324,13 +374,20 @@ export class ControlSystem {
     async loadState() {
         try {
             let data = null;
+            // ✅ Verificar si window existe
             if (typeof window !== 'undefined') {
                 const saved = localStorage.getItem('cerebro_state');
                 if (saved) data = JSON.parse(saved);
+            } else {
+                const fs = await import('fs');
+                const path = await import('path');
+                const loadPath = path.join(process.cwd(), 'saved_state.json');
+                if (fs.existsSync(loadPath)) {
+                    data = JSON.parse(fs.readFileSync(loadPath, 'utf8'));
+                }
             }
             if (data) {
                 this.addLog('Estado cargado correctamente', 'system');
-                // Aquí se implementaría la lógica de importación
             } else {
                 this.addLog('No se encontró estado guardado', 'warning');
             }
@@ -350,6 +407,9 @@ export class ControlSystem {
     }
 
     updateLogDisplay(logEntry) {
+        // ✅ Verificar si document existe
+        if (typeof document === 'undefined') return;
+        
         const logContainer = document.getElementById('systemLog');
         if (!logContainer) return;
         
@@ -375,6 +435,9 @@ export class ControlSystem {
     }
 
     updateCharacterDisplay() {
+        // ✅ Verificar si document existe
+        if (typeof document === 'undefined') return;
+        
         const systemState = systemCore.getSystemState();
         const charName = document.getElementById('charName');
         const charState = document.getElementById('charState');
@@ -388,6 +451,9 @@ export class ControlSystem {
     }
 
     updateSystemStatus() {
+        // ✅ Verificar si document existe
+        if (typeof document === 'undefined') return;
+        
         const systemState = systemCore.getSystemState();
         const stabilityElement = document.querySelector('.system-stability');
         
@@ -399,6 +465,9 @@ export class ControlSystem {
     }
 
     updateControlStates() {
+        // ✅ Verificar si document existe
+        if (typeof document === 'undefined') return;
+        
         const emergencyStopBtn = document.getElementById('emergencyStop');
         if (emergencyStopBtn) {
             emergencyStopBtn.disabled = systemCore.systemState.emergency || false;
@@ -447,6 +516,9 @@ export class ControlSystem {
     }
 
     applyVisualizationMode() {
+        // ✅ Verificar si document existe
+        if (typeof document === 'undefined') return;
+        
         const body = document.body;
         body.className = '';
         body.classList.add(`mode-${this.uiState.modoVisualizacion}`);
