@@ -1,9 +1,10 @@
 // src/modules/MemorySystem.js
-import { brain } from '../core/SystemCore.js';
+import { systemCore } from '../core/SystemCore.js';
 
 export class MemorySystem {
     constructor() {
         this.state = {};
+        this.config = {};
         this.memories = {
             episodica: [],
             semantica: new Map(),
@@ -23,64 +24,74 @@ export class MemorySystem {
         this.consolidationThreshold = 0.6;
         this.cache = new Map();
         this.cacheTimeout = 300000;
+        this.memoryProfile = {};
+        this.parametros = {};
     }
 
     async initialize(characterConfig) {
-        this.config = characterConfig;
+        this.config = characterConfig || { genotipo: 'humano' };
         this.setupMemoryProfile();
         this.initializeState();
         this.setupLearningAlgorithms();
         this.setupConsolidationSystem();
-        console.log('💾 Sistema de memoria V3.0 inicializado');
+        systemCore.logSystem('Sistema de memoria V3.0 inicializado');
     }
 
     setupMemoryProfile() {
-        const baseProfile = {
-            retentionRate: 1.0,
-            retrievalSpeed: 1.0,
-            learningEfficiency: 1.0,
-            workingMemory: 1.0,
-            consolidationEfficiency: 1.0,
-            semanticMemory: 1.0,
-            episodicMemory: 1.0,
-            spatialMemory: 1.0
-        };
-
+        const genotipo = this.config?.genotipo || 'humano';
+        
         const profiles = {
-            humano: baseProfile,
-            intelectual: {
-                ...baseProfile,
-                retentionRate: 1.3,
-                retrievalSpeed: 1.2,
-                learningEfficiency: 1.4,
-                workingMemory: 1.2,
-                consolidationEfficiency: 1.3,
-                semanticMemory: 1.4
+            humano: {
+                retentionRate: 1.0,
+                retrievalSpeed: 1.0,
+                learningEfficiency: 1.0,
+                workingMemory: 1.0,
+                consolidationEfficiency: 1.0,
+                semanticMemory: 1.0,
+                episodicMemory: 1.0,
+                spatialMemory: 1.0
             },
-            creativo: {
-                ...baseProfile,
-                retentionRate: 1.1,
-                retrievalSpeed: 1.3,
-                learningEfficiency: 1.2,
-                episodicMemory: 1.3,
-                consolidationEfficiency: 1.1
-            },
-            estratega: {
-                ...baseProfile,
+            resiliente: {
                 retentionRate: 1.2,
+                retrievalSpeed: 1.1,
                 learningEfficiency: 1.3,
-                consolidationEfficiency: 1.4,
-                semanticMemory: 1.2
+                workingMemory: 1.1,
+                consolidationEfficiency: 1.2
             },
-            perceptivo: {
-                ...baseProfile,
+            vulnerable: {
+                retentionRate: 0.7,
+                retrievalSpeed: 0.8,
+                learningEfficiency: 0.6,
+                workingMemory: 0.8,
+                consolidationEfficiency: 0.7
+            },
+            audaz: {
+                retentionRate: 1.0,
+                retrievalSpeed: 1.3,
+                learningEfficiency: 1.1,
+                workingMemory: 1.2,
+                consolidationEfficiency: 1.0,
+                experientialLearning: 1.4
+            },
+            intelectual: {
+                retentionRate: 1.5,
                 retrievalSpeed: 1.4,
-                spatialMemory: 1.3,
-                workingMemory: 1.3
+                learningEfficiency: 1.6,
+                workingMemory: 1.3,
+                consolidationEfficiency: 1.5,
+                semanticMemory: 1.5
+            },
+            social: {
+                retentionRate: 1.1,
+                retrievalSpeed: 1.2,
+                learningEfficiency: 1.2,
+                workingMemory: 1.1,
+                consolidationEfficiency: 1.1,
+                socialMemory: 1.6
             }
         };
 
-        this.memoryProfile = profiles[this.config.genotipo] || profiles.humano;
+        this.memoryProfile = profiles[genotipo] || profiles.humano;
     }
 
     initializeState() {
@@ -224,32 +235,17 @@ export class MemorySystem {
     }
 
     update(input, deltaTime) {
-        this.lastUpdateTime = brain.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime || Date.now();
         
         if (!input || !input.biochemical || !input.cognitive) return this.getState();
 
-        // 1. Procesar memoria de trabajo
         this.processWorkingMemory(input, deltaTime);
-        
-        // 2. Consolidar memorias recientes
         this.consolidateMemories(deltaTime);
-        
-        // 3. Procesar consolidación en cola
         this.processConsolidationQueue(deltaTime);
-        
-        // 4. Aplicar procesos de olvido
         this.applyForgettingProcess(deltaTime);
-        
-        // 5. Actualizar capacidades de memoria
         this.updateMemoryCapacities(input, deltaTime);
-        
-        // 6. Gestionar interferencia
         this.manageInterference(deltaTime);
-        
-        // 7. Fortalecer conexiones asociativas
         this.strengthenAssociations(deltaTime);
-        
-        // 8. Aplicar homeostasis de memoria
         this.applyMemoryHomeostasis(deltaTime);
 
         return this.getState();
@@ -299,7 +295,7 @@ export class MemorySystem {
                 biochemical: { ...context.biochemical },
                 emotional: { ...emotionalState },
                 cognitive: { ...cognitiveState },
-                timestamp: brain.systemTime || Date.now()
+                timestamp: systemCore.systemTime || Date.now()
             },
             fuerza: this.calculateInitialStrength(context),
             tipo: this.classifyMemory(evento),
@@ -490,10 +486,10 @@ export class MemorySystem {
         const longTermMemory = {
             ...memory,
             consolidado: true,
-            timestampConsolidacion: brain.systemTime || Date.now(),
+            timestampConsolidacion: systemCore.systemTime || Date.now(),
             fuerzaConsolidada: memory.fuerza,
             accesos: 0,
-            ultimoAcceso: brain.systemTime || Date.now(),
+            ultimoAcceso: systemCore.systemTime || Date.now(),
             importancia: this.calculateImportance(memory)
         };
         
@@ -560,7 +556,7 @@ export class MemorySystem {
                 habilidad: memory.contenido,
                 nivel: memory.fuerza * 100,
                 practica: 1,
-                ultimaPractica: brain.systemTime || Date.now(),
+                ultimaPractica: systemCore.systemTime || Date.now(),
                 eficiencia: memory.fuerza,
                 complejidad: 0.5,
                 importancia: memory.importancia
@@ -569,7 +565,7 @@ export class MemorySystem {
             const existing = this.memories.procedural.get(key);
             existing.nivel = (existing.nivel * existing.practica + memory.fuerza * 100) / (existing.practica + 1);
             existing.practica++;
-            existing.ultimaPractica = brain.systemTime || Date.now();
+            existing.ultimaPractica = systemCore.systemTime || Date.now();
             existing.eficiencia = Math.min(1.0, existing.eficiencia + 0.04);
             existing.importancia = Math.max(existing.importancia, memory.importancia);
         }
@@ -583,7 +579,7 @@ export class MemorySystem {
                 ubicacion: memory.contenido,
                 coordenadas: memory.coordenadas || { x: 0, y: 0, z: 0 },
                 precision: memory.fuerza,
-                ultimoAcceso: brain.systemTime || Date.now(),
+                ultimoAcceso: systemCore.systemTime || Date.now(),
                 importancia: memory.importancia
             });
         }
@@ -599,11 +595,11 @@ export class MemorySystem {
                 ...memory,
                 emociones: memory.contexto?.emotional || {},
                 intensidad: memory.fuerza,
-                ultimoAcceso: brain.systemTime || Date.now()
+                ultimoAcceso: systemCore.systemTime || Date.now()
             });
         } else {
             existing.intensidad = (existing.intensidad + memory.fuerza) / 2;
-            existing.ultimoAcceso = brain.systemTime || Date.now();
+            existing.ultimoAcceso = systemCore.systemTime || Date.now();
             existing.importancia = Math.max(existing.importancia, memory.importancia);
         }
         
@@ -622,7 +618,7 @@ export class MemorySystem {
                 habilidad: memory.contenido,
                 nivel: memory.fuerza * 100,
                 practica: 1,
-                ultimaPractica: brain.systemTime || Date.now(),
+                ultimaPractica: systemCore.systemTime || Date.now(),
                 precision: memory.fuerza,
                 fluidez: memory.fuerza * 0.8,
                 importancia: memory.importancia
@@ -631,7 +627,7 @@ export class MemorySystem {
             const existing = this.memories.procedural_motor.get(key);
             existing.nivel = (existing.nivel * existing.practica + memory.fuerza * 100) / (existing.practica + 1);
             existing.practica++;
-            existing.ultimaPractica = brain.systemTime || Date.now();
+            existing.ultimaPractica = systemCore.systemTime || Date.now();
             existing.precision = Math.min(1, existing.precision + 0.04);
             existing.fluidez = Math.min(1, existing.fluidez + 0.03);
         }
@@ -648,13 +644,13 @@ export class MemorySystem {
                             concepto: palabra,
                             fuerza: 0.3,
                             contextos: 1,
-                            ultimaActualizacion: brain.systemTime || Date.now()
+                            ultimaActualizacion: systemCore.systemTime || Date.now()
                         });
                     } else {
                         const sem = this.memories.semantica.get(palabra);
                         sem.fuerza = Math.min(1, sem.fuerza + 0.02);
                         sem.contextos++;
-                        sem.ultimaActualizacion = brain.systemTime || Date.now();
+                        sem.ultimaActualizacion = systemCore.systemTime || Date.now();
                     }
                 }
             });
@@ -705,7 +701,7 @@ export class MemorySystem {
         const forgetRate = this.parametros.olvido * (1 - this.memoryProfile.retentionRate / 2);
         
         this.memories.episodica = this.memories.episodica.filter(memory => {
-            const timeSinceConsolidation = (brain.systemTime || Date.now()) - memory.timestampConsolidacion;
+            const timeSinceConsolidation = (systemCore.systemTime || Date.now()) - memory.timestampConsolidacion;
             const survivalProbability = Math.exp(-forgetRate * timeSinceConsolidation / 86400);
             const importanceBoost = 1 + (memory.importancia || 0) * 0.5;
             
@@ -718,7 +714,7 @@ export class MemorySystem {
         });
         
         this.memories.semantica.forEach((value, key) => {
-            const timeSinceUpdate = (brain.systemTime || Date.now()) - value.ultimaActualizacion;
+            const timeSinceUpdate = (systemCore.systemTime || Date.now()) - value.ultimaActualizacion;
             if (timeSinceUpdate > 86400 * 30) {
                 value.fuerza *= (1 - forgetRate * deltaTime * 0.01);
                 if (value.fuerza < 0.1) {
@@ -1048,7 +1044,7 @@ export class MemorySystem {
                     memory.acceso++;
                 }
                 if (memory.ultimoAcceso !== undefined) {
-                    memory.ultimoAcceso = brain.systemTime || Date.now();
+                    memory.ultimoAcceso = systemCore.systemTime || Date.now();
                 }
             });
         });
@@ -1158,15 +1154,6 @@ export class MemorySystem {
             .filter(memory => memory.importancia > 0.5 || memory.fuerzaConsolidada > 0.7);
     }
 
-    restoreAfterEmergency() {
-        this.applyModulation({
-            confianzaMemoria: 10,
-            retrievalEficiencia: 10,
-            consolidacionEficiencia: 10
-        });
-        console.log('✅ Sistema de memoria restaurado después de emergencia');
-    }
-
     applyModulation(modulation) {
         Object.keys(modulation).forEach(key => {
             if (this.state[key] !== undefined) {
@@ -1243,7 +1230,6 @@ export class MemorySystem {
         this.consolidationQueue = [];
         this.memoryStrengths = new Map();
         this.cache = new Map();
-        console.log('🔄 Sistema de memoria reiniciado');
     }
 
     exportData() {
@@ -1266,4 +1252,4 @@ export class MemorySystem {
     }
 }
 
-brain.registerModule('memory', new MemorySystem());
+systemCore.registerModule('memory', new MemorySystem());
