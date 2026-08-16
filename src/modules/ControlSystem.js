@@ -1,8 +1,10 @@
 // src/modules/ControlSystem.js
-import { brain } from '../core/SystemCore.js';
+import { systemCore } from '../core/SystemCore.js';
 
 export class ControlSystem {
     constructor() {
+        this.config = {};
+        this.uiState = {};
         this.controlMapping = new Map();
         this.situationPresets = new Map();
         this.eventListeners = [];
@@ -13,35 +15,61 @@ export class ControlSystem {
     }
 
     async initialize(characterConfig) {
-        this.config = characterConfig;
+        this.config = characterConfig || { genotipo: 'humano' };
+        this.initializeUIState();
         this.setupControlMapping();
         this.setupSituationPresets();
-        console.log('🎮 Sistema de control V3.0 inicializado');
+        this.setupEventListeners();
+        systemCore.logSystem('Sistema de control V3.0 inicializado');
+    }
+
+    initializeUIState() {
+        this.uiState = {
+            panelAbierto: 'principal',
+            modoVisualizacion: 'completo',
+            tema: 'oscuro',
+            mostrarBioquimica: true,
+            mostrarEmociones: true,
+            mostrarCognicion: true,
+            mostrarMemoria: true,
+            mostrarMotor: true,
+            pausa: false,
+            velocidadSimulacion: 1.0,
+            registroAutomatico: true,
+            interaccionActiva: false,
+            ultimaAccion: null,
+            historialAcciones: []
+        };
     }
 
     setupControlMapping() {
         this.controlMapping.set('reset_system', {
-            funcion: () => brain.reset(),
+            funcion: () => systemCore.resetSystem(),
             confirmacion: true,
             mensaje: '¿Reiniciar todo el sistema?'
         });
+        
         this.controlMapping.set('export_data', {
             funcion: () => this.exportSystemData(),
             confirmacion: false
         });
-        this.controlMapping.set('toggle_auto_evolution', {
+        
+        this.controlMapping.set('toggle_ai', {
             funcion: () => this.toggleAutoEvolution(),
             confirmacion: false
         });
+        
         this.controlMapping.set('emergency_stop', {
             funcion: () => this.emergencyStop(),
             confirmacion: true,
             mensaje: '¿Activar parada de emergencia?'
         });
+
         this.controlMapping.set('save_state', {
             funcion: () => this.saveState(),
             confirmacion: false
         });
+
         this.controlMapping.set('load_state', {
             funcion: () => this.loadState(),
             confirmacion: true,
@@ -61,6 +89,7 @@ export class ControlSystem {
                 { tipo: 'estres_alto', intensidad: 0.6, delay: 3000 }
             ]
         });
+        
         this.situationPresets.set('recuperacion', {
             nombre: 'Recuperación',
             descripcion: 'Proceso de recuperación y relajación',
@@ -72,6 +101,7 @@ export class ControlSystem {
                 { tipo: 'descanso', intensidad: 1.0, delay: 3000 }
             ]
         });
+        
         this.situationPresets.set('crisis_extrema', {
             nombre: 'Crisis Extrema',
             descripcion: 'Situación de emergencia múltiple',
@@ -84,6 +114,7 @@ export class ControlSystem {
                 { tipo: 'estres_alto', intensidad: 1.0, delay: 2000 }
             ]
         });
+        
         this.situationPresets.set('estado_optimo', {
             nombre: 'Estado Óptimo',
             descripcion: 'Condiciones ideales para máximo rendimiento',
@@ -96,6 +127,7 @@ export class ControlSystem {
                 { tipo: 'inspiracion', intensidad: 0.8, delay: 3000 }
             ]
         });
+
         this.situationPresets.set('creatividad', {
             nombre: 'Flujo Creativo',
             descripcion: 'Estímulo de la creatividad',
@@ -107,6 +139,7 @@ export class ControlSystem {
                 { tipo: 'desafio', intensidad: 0.9, delay: 3000 }
             ]
         });
+
         this.situationPresets.set('aprendizaje', {
             nombre: 'Aprendizaje Intenso',
             descripcion: 'Optimización del aprendizaje',
@@ -120,28 +153,85 @@ export class ControlSystem {
         });
     }
 
-    onEvent(callback) {
-        this.eventListeners.push(callback);
+    setupEventListeners() {
+        if (typeof document !== 'undefined') {
+            this.setupDOMEventListeners();
+        }
+        
+        window.addEventListener('systemLog', (event) => {
+            this.handleSystemLog(event.detail);
+        });
+        
+        window.addEventListener('systemStateChange', (event) => {
+            this.handleSystemStateChange(event.detail);
+        });
     }
 
-    emitEvent(type, data) {
-        this.eventListeners.forEach(cb => {
-            try {
-                cb({ type, data, module: 'control' });
-            } catch (error) {
-                console.error('❌ Error en listener de control:', error);
+    setupDOMEventListeners() {
+        document.addEventListener('DOMContentLoaded', () => {
+            this.setupControlButtons();
+            this.setupSituationButtons();
+            this.setupSequenceButtons();
+            this.setupCharacterSelector();
+        });
+    }
+
+    setupControlButtons() {
+        const controlSelectors = {
+            '#resetSystem': 'reset_system',
+            '#exportData': 'export_data',
+            '#toggleAI': 'toggle_ai',
+            '#emergencyStop': 'emergency_stop'
+        };
+        
+        Object.keys(controlSelectors).forEach(selector => {
+            const element = document.querySelector(selector);
+            if (element) {
+                element.addEventListener('click', () => {
+                    this.executeControl(controlSelectors[selector]);
+                });
             }
         });
+    }
+
+    setupSituationButtons() {
+        document.addEventListener('click', (event) => {
+            if (event.target.classList.contains('situation-btn')) {
+                const situation = event.target.dataset.situation;
+                this.applySituation(situation);
+            }
+        });
+    }
+
+    setupSequenceButtons() {
+        document.addEventListener('click', (event) => {
+            if (event.target.classList.contains('sequence-btn')) {
+                const sequence = event.target.dataset.sequence;
+                this.executeSequence(sequence);
+            }
+        });
+    }
+
+    setupCharacterSelector() {
+        const selector = document.getElementById('characterSelect');
+        const applyButton = document.getElementById('applyCharacter');
+        
+        if (selector && applyButton) {
+            applyButton.addEventListener('click', () => {
+                this.changeCharacter(selector.value);
+            });
+        }
     }
 
     executeControl(controlId) {
         const control = this.controlMapping.get(controlId);
         if (!control) {
-            this.addLog(`Control no encontrado: ${controlId}`, 'error');
+            systemCore.logSystem(`Control no encontrado: ${controlId}`, 'error');
             return;
         }
+        
         if (control.confirmacion) {
-            if (this.confirmAction(control.mensaje || '¿Está seguro?')) {
+            if (confirm(control.mensaje || '¿Está seguro?')) {
                 control.funcion();
                 this.lastControlAction = controlId;
             }
@@ -149,20 +239,13 @@ export class ControlSystem {
             control.funcion();
             this.lastControlAction = controlId;
         }
-        this.actionHistory.push({ control: controlId, timestamp: brain.systemTime || Date.now() });
+        this.actionHistory.push({ control: controlId, timestamp: systemCore.systemTime || Date.now() });
         if (this.actionHistory.length > 50) this.actionHistory.shift();
     }
 
-    confirmAction(message) {
-        if (typeof window !== 'undefined' && window.confirm) {
-            return window.confirm(message);
-        }
-        return true;
-    }
-
     applySituation(situationType, intensity = 1.0) {
-        brain.applySituation(situationType, intensity);
-        this.actionHistory.push({ action: 'situation', type: situationType, intensity: intensity, timestamp: brain.systemTime || Date.now() });
+        systemCore.applySituation(situationType, intensity);
+        this.actionHistory.push({ action: 'situation', type: situationType, intensity: intensity, timestamp: systemCore.systemTime || Date.now() });
         this.addLog(`Situación aplicada: ${situationType} (intensidad: ${intensity})`, 'system');
     }
 
@@ -173,7 +256,7 @@ export class ControlSystem {
             return;
         }
         this.addLog(`Iniciando secuencia: ${sequence.nombre}`, 'system');
-        this.actionHistory.push({ action: 'sequence', id: sequenceId, name: sequence.nombre, timestamp: brain.systemTime || Date.now() });
+        this.actionHistory.push({ action: 'sequence', id: sequenceId, name: sequence.nombre, timestamp: systemCore.systemTime || Date.now() });
         for (const situacion of sequence.situaciones) {
             await this.delay(situacion.delay);
             this.applySituation(situacion.tipo, situacion.intensidad);
@@ -181,47 +264,57 @@ export class ControlSystem {
         this.addLog(`Secuencia completada: ${sequence.nombre}`, 'system');
     }
 
-    exportSystemData() {
-        const data = brain.exportData();
-        if (typeof window !== 'undefined') {
-            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `cerebro_${Date.now()}.json`;
-            a.click();
-            URL.revokeObjectURL(url);
-        } else {
-            console.log('📊 Datos exportados:', JSON.stringify(data, null, 2));
+    changeCharacter(genotipo) {
+        const characterConfigs = {
+            resiliente: { nombre: "Nexus Prime", genotipo: "resiliente", genero: "neutro" },
+            vulnerable: { nombre: "Sigma", genotipo: "vulnerable", genero: "neutro" },
+            audaz: { nombre: "Thor", genotipo: "audaz", genero: "masculino" },
+            intelectual: { nombre: "Athena", genotipo: "intelectual", genero: "femenino" },
+            social: { nombre: "Luna", genotipo: "social", genero: "femenino" }
+        };
+        
+        const config = characterConfigs[genotipo];
+        if (config) {
+            systemCore.changeCharacter(config);
+            this.recordAction('cambio_personaje', config);
         }
+    }
+
+    exportSystemData() {
+        const data = systemCore.exportSystemData();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `sistema_nervioso_${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
         this.addLog('Datos del sistema exportados', 'system');
         return data;
     }
 
     toggleAutoEvolution() {
-        brain.autoEvolution = !brain.autoEvolution;
-        this.addLog(`Auto-evolución ${brain.autoEvolution ? 'activada' : 'desactivada'}`, 'system');
-        return brain.autoEvolution;
+        systemCore.autoEvolution = !systemCore.autoEvolution;
+        const button = document.getElementById('toggleAI');
+        if (button) {
+            button.textContent = `🤖 Auto-evolución: ${systemCore.autoEvolution ? 'ON' : 'OFF'}`;
+        }
+        this.addLog(`Auto-evolución ${systemCore.autoEvolution ? 'activada' : 'desactivada'}`, 'system');
+        return systemCore.autoEvolution;
     }
 
     emergencyStop() {
-        brain.triggerEmergencyProtocol();
+        systemCore.triggerEmergencyProtocol();
         this.addLog('🚨 PARADA DE EMERGENCIA ACTIVADA', 'error');
-        this.actionHistory.push({ action: 'emergency_stop', timestamp: brain.systemTime || Date.now() });
+        this.actionHistory.push({ action: 'emergency_stop', timestamp: systemCore.systemTime || Date.now() });
     }
 
     async saveState() {
         try {
-            const data = brain.exportData();
+            const data = systemCore.exportSystemData();
             if (typeof window !== 'undefined') {
                 localStorage.setItem('cerebro_state', JSON.stringify(data));
                 this.addLog('Estado guardado correctamente', 'system');
-            } else {
-                const fs = await import('fs');
-                const path = await import('path');
-                const savePath = path.join(process.cwd(), 'saved_state.json');
-                fs.writeFileSync(savePath, JSON.stringify(data, null, 2));
-                this.addLog(`Estado guardado en ${savePath}`, 'system');
             }
         } catch (error) {
             this.addLog(`Error guardando estado: ${error.message}`, 'error');
@@ -234,13 +327,6 @@ export class ControlSystem {
             if (typeof window !== 'undefined') {
                 const saved = localStorage.getItem('cerebro_state');
                 if (saved) data = JSON.parse(saved);
-            } else {
-                const fs = await import('fs');
-                const path = await import('path');
-                const loadPath = path.join(process.cwd(), 'saved_state.json');
-                if (fs.existsSync(loadPath)) {
-                    data = JSON.parse(fs.readFileSync(loadPath, 'utf8'));
-                }
             }
             if (data) {
                 this.addLog('Estado cargado correctamente', 'system');
@@ -251,6 +337,120 @@ export class ControlSystem {
         } catch (error) {
             this.addLog(`Error cargando estado: ${error.message}`, 'error');
         }
+    }
+
+    handleSystemLog(logEntry) {
+        this.updateLogDisplay(logEntry);
+        this.recordSystemEvent('log', logEntry);
+    }
+
+    handleSystemStateChange(stateChange) {
+        this.updateUIState(stateChange);
+        this.recordSystemEvent('estado', stateChange);
+    }
+
+    updateLogDisplay(logEntry) {
+        const logContainer = document.getElementById('systemLog');
+        if (!logContainer) return;
+        
+        const logElement = document.createElement('div');
+        logElement.className = `log-entry ${logEntry.type}`;
+        logElement.innerHTML = `
+            <span class="log-time">${logEntry.timestamp}</span>
+            <span class="log-message">${logEntry.message}</span>
+        `;
+        
+        logContainer.appendChild(logElement);
+        logContainer.scrollTop = logContainer.scrollHeight;
+        
+        if (logContainer.children.length > 50) {
+            logContainer.removeChild(logContainer.firstChild);
+        }
+    }
+
+    updateUIState(stateChange) {
+        this.updateCharacterDisplay();
+        this.updateSystemStatus();
+        this.updateControlStates();
+    }
+
+    updateCharacterDisplay() {
+        const systemState = systemCore.getSystemState();
+        const charName = document.getElementById('charName');
+        const charState = document.getElementById('charState');
+        const charGenotype = document.getElementById('charGenotype');
+        
+        if (charName) charName.textContent = systemState.character?.nombre || 'Nexus Prime';
+        if (charGenotype) {
+            const genotipo = systemState.character?.genotipo || 'resiliente';
+            charGenotype.textContent = `Genotipo: ${genotipo.charAt(0).toUpperCase() + genotipo.slice(1)}`;
+        }
+    }
+
+    updateSystemStatus() {
+        const systemState = systemCore.getSystemState();
+        const stabilityElement = document.querySelector('.system-stability');
+        
+        if (stabilityElement) {
+            const stability = (systemState.stability || 0) * 100;
+            stabilityElement.textContent = `Estabilidad: ${stability.toFixed(1)}%`;
+            stabilityElement.style.color = this.getStabilityColor(stability);
+        }
+    }
+
+    updateControlStates() {
+        const emergencyStopBtn = document.getElementById('emergencyStop');
+        if (emergencyStopBtn) {
+            emergencyStopBtn.disabled = systemCore.systemState.emergency || false;
+        }
+    }
+
+    getStabilityColor(stability) {
+        if (stability >= 80) return '#00ff00';
+        if (stability >= 60) return '#ffff00';
+        if (stability >= 40) return '#ffa500';
+        return '#ff0000';
+    }
+
+    recordAction(tipo, detalles) {
+        const accion = {
+            tipo,
+            detalles,
+            timestamp: new Date().toLocaleTimeString(),
+            ciclo: systemCore.cycleCount
+        };
+        
+        this.uiState.historialAcciones.push(accion);
+        this.uiState.ultimaAccion = accion;
+        
+        if (this.uiState.historialAcciones.length > 100) {
+            this.uiState.historialAcciones.shift();
+        }
+    }
+
+    recordSystemEvent(tipo, datos) {
+        console.log(`[ControlSystem] Evento ${tipo}:`, datos);
+    }
+
+    togglePanel(panelId) {
+        this.uiState.panelAbierto = panelId;
+        this.updatePanelVisibility();
+    }
+
+    updatePanelVisibility() {
+        // Implementar lógica para mostrar/ocultar paneles
+    }
+
+    setVisualizationMode(mode) {
+        this.uiState.modoVisualizacion = mode;
+        this.applyVisualizationMode();
+    }
+
+    applyVisualizationMode() {
+        const body = document.body;
+        body.className = '';
+        body.classList.add(`mode-${this.uiState.modoVisualizacion}`);
+        body.classList.add(`theme-${this.uiState.tema}`);
     }
 
     addLog(message, type = 'info') {
@@ -265,15 +465,8 @@ export class ControlSystem {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    getState() {
-        return {
-            mapping: Array.from(this.controlMapping.keys()),
-            presets: Array.from(this.situationPresets.keys()),
-            actionHistory: this.actionHistory.slice(-20),
-            systemLogs: this.systemLogs.slice(-50),
-            lastAction: this.lastControlAction,
-            isDebugMode: this.isDebugMode
-        };
+    getUIState() {
+        return { ...this.uiState };
     }
 
     getSituationPresets() {
@@ -299,21 +492,24 @@ export class ControlSystem {
     }
 
     reset() {
+        this.initializeUIState();
         this.actionHistory = [];
         this.systemLogs = [];
         this.lastControlAction = null;
-        console.log('🔄 Sistema de control reiniciado');
     }
 
     exportData() {
         return {
+            uiState: this.getUIState(),
+            situationPresets: this.getSituationPresets(),
+            controlMapping: Array.from(this.getControlMapping().entries()),
+            historialAcciones: this.uiState.historialAcciones,
             actionHistory: this.actionHistory.slice(-20),
             systemLogs: this.systemLogs.slice(-50),
             lastAction: this.lastControlAction,
-            isDebugMode: this.isDebugMode,
-            situationPresets: this.getSituationPresets()
+            isDebugMode: this.isDebugMode
         };
     }
 }
 
-brain.registerModule('control', new ControlSystem());
+systemCore.registerModule('control', new ControlSystem());
