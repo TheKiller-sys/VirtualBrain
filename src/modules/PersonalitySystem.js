@@ -10,17 +10,21 @@ export class PersonalitySystem {
         this.eventListeners = [];
         this.personalityDevelopment = 0;
         this.lastUpdateTime = 0;
+        this.config = {}; // ✅ Inicializar config como objeto vacío
     }
 
     async initialize(characterConfig) {
-        this.config = characterConfig;
+        this.config = characterConfig || { genotipo: 'resiliente' }; // ✅ Asegurar que config existe
         this.initializeTraits();
         this.initializeState();
         this.setupPersonalityMatrix();
-        systemCore.logSystem('Sistema de personalidad V2.0 inicializado');
+        systemCore.logSystem('Sistema de personalidad V3.0 inicializado');
     }
 
     initializeTraits() {
+        // ✅ Verificar que config existe antes de usarlo
+        const genotipo = this.config?.genotipo || 'resiliente';
+        
         const baseTraits = {
             resiliente: {
                 openness: 0.5,
@@ -59,7 +63,7 @@ export class PersonalitySystem {
             }
         };
 
-        const base = baseTraits[this.config.genotipo] || baseTraits.resiliente;
+        const base = baseTraits[genotipo] || baseTraits.resiliente;
         
         this.traits = {
             openness: base.openness,
@@ -104,7 +108,7 @@ export class PersonalitySystem {
 
         this.personalityDevelopment = 0;
         this.personalityMatrix = {};
-        this.lastUpdateTime = systemCore.systemTime;
+        this.lastUpdateTime = systemCore.systemTime || Date.now();
     }
 
     setupPersonalityMatrix() {
@@ -146,9 +150,9 @@ export class PersonalitySystem {
     }
 
     update(input, deltaTime) {
-        this.lastUpdateTime = systemCore.systemTime;
+        this.lastUpdateTime = systemCore.systemTime || Date.now();
         
-        if (!input.biochemical || !input.emotional) return this.getState();
+        if (!input || !input.biochemical || !input.emotional) return this.getState();
 
         this.applyEmotionalInfluences(input.emotional, deltaTime);
         this.applyBiochemicalInfluences(input.biochemical, deltaTime);
@@ -313,7 +317,6 @@ export class PersonalitySystem {
         });
     }
 
-    // ============ MÉTODO AGREGADO PARA AUTO-EVOLUCIÓN ============
     applyModulation(modulation) {
         if (modulation.madurez !== undefined) {
             this.state.madurez = Math.min(1, Math.max(0, this.state.madurez + modulation.madurez));
@@ -339,7 +342,6 @@ export class PersonalitySystem {
         if (modulation.creatividad !== undefined) {
             this.subTraits.creativity = Math.min(1, Math.max(0, this.subTraits.creativity + modulation.creatividad));
         }
-        // Actualizar sub-rasgos
         this.updateSubTraits(0.1);
     }
 
