@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cerebro Digital V3.0</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0a0a1a;
+            color: #e0e0e0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            width: 100%;
+            background: rgba(20, 20, 40, 0.9);
+            border-radius: 20px;
+            padding: 30px;
+            border: 1px solid rgba(100, 100, 255, 0.2);
+            box-shadow: 0 0 60px rgba(0, 100, 255, 0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #00d4ff;
+            font-size: 2.5em;
+            margin-bottom: 5px;
+            text-shadow: 0 0 30px rgba(0, 212, 255, 0.3);
+        }
+        .subtitle {
+            text-align: center;
+            color: #8888aa;
+            font-size: 1.1em;
+            margin-bottom: 30px;
+        }
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        .status-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            text-align: center;
+        }
+        .status-card .label {
+            font-size: 0.8em;
+            color: #8888aa;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .status-card .value {
+            font-size: 1.8em;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+        .status-card .value.consciousness { color: #00d4ff; }
+        .status-card .value.stability { color: #00ff88; }
+        .status-card .value.performance { color: #ffd700; }
+        .status-card .value.age { color: #ff6b6b; }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-bottom: 25px;
+        }
+        .metric-item {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.03);
+        }
+        .metric-item .label {
+            font-size: 0.7em;
+            color: #666688;
+        }
+        .metric-item .value {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #aaaacc;
+        }
+        
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        .controls button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(0, 212, 255, 0.15);
+            color: #00d4ff;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(0, 212, 255, 0.1);
+        }
+        .controls button:hover {
+            background: rgba(0, 212, 255, 0.25);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0, 212, 255, 0.15);
+        }
+        .controls button.danger {
+            background: rgba(255, 50, 50, 0.15);
+            color: #ff4444;
+            border-color: rgba(255, 50, 50, 0.1);
+        }
+        .controls button.danger:hover {
+            background: rgba(255, 50, 50, 0.25);
+        }
+        .controls button.success {
+            background: rgba(0, 255, 100, 0.15);
+            color: #00ff88;
+            border-color: rgba(0, 255, 100, 0.1);
+        }
+        .controls button.success:hover {
+            background: rgba(0, 255, 100, 0.25);
+        }
+        
+        .log-container {
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 10px;
+            padding: 15px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8em;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            margin-top: 20px;
+        }
+        .log-entry {
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            color: #8888aa;
+        }
+        .log-entry .time {
+            color: #444466;
+            margin-right: 10px;
+        }
+        .log-entry .message { color: #aaaacc; }
+        .log-entry .message.important { color: #ffd700; }
+        .log-entry .message.error { color: #ff4444; }
+        
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            color: #444466;
+            font-size: 0.8em;
+        }
+        
+        @media (max-width: 600px) {
+            .container { padding: 15px; }
+            h1 { font-size: 1.8em; }
+            .status-grid { grid-template-columns: 1fr 1fr; }
+            .metrics-grid { grid-template-columns: 1fr 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧠 Cerebro Digital V3.0</h1>
+        <p class="subtitle">Sistema de consciencia artificial con base de datos</p>
+        
+        <div class="status-grid" id="statusGrid">
+            <div class="status-card">
+                <div class="label">Consciencia</div>
+                <div class="value consciousness" id="consciousness">0.0%</div>
+            </div>
+            <div class="status-card">
+                <div class="label">Estabilidad</div>
+                <div class="value stability" id="stability">0.0%</div>
+            </div>
+            <div class="status-card">
+                <div class="label">Rendimiento</div>
+                <div class="value performance" id="performance">0.0%</div>
+            </div>
+            <div class="status-card">
+                <div class="label">Edad Biológica</div>
+                <div class="value age" id="age">0.0</div>
+            </div>
+        </div>
+        
+        <div class="metrics-grid" id="metricsGrid">
+            <div class="metric-item">
+                <div class="label">Estado</div>
+                <div class="value" id="systemStatus">⏳ Iniciando...</div>
+            </div>
+            <div class="metric-item">
+                <div class="label">Ciclos</div>
+                <div class="value" id="cycles">0</div>
+            </div>
+            <div class="metric-item">
+                <div class="label">Memorias</div>
+                <div class="value" id="memories">0</div>
+            </div>
+            <div class="metric-item">
+                <div class="label">Emoción Dominante</div>
+                <div class="value" id="dominantEmotion">neutral</div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button onclick="applySituation('recompensa')">🎁 Recompensa</button>
+            <button onclick="applySituation('amenaza')">⚠️ Amenaza</button>
+            <button onclick="applySituation('alegria')">😄 Alegría</button>
+            <button onclick="applySituation('tristeza')">😢 Tristeza</button>
+            <button onclick="applySituation('descanso')">😴 Descanso</button>
+            <button onclick="applySituation('desafio')">💪 Desafío</button>
+            <button onclick="applySituation('inspiracion')">✨ Inspiración</button>
+            <button class="danger" onclick="applySituation('estres_alto')">🔥 Estrés</button>
+            <button class="success" onclick="think()">🤔 Pensar</button>
+            <button class="danger" onclick="resetSystem()">🔄 Reset</button>
+        </div>
+        
+        <div class="log-container" id="logContainer">
+            <div class="log-entry">
+                <span class="time">[SISTEMA]</span>
+                <span class="message">Cerebro Digital V3.0 inicializado</span>
+            </div>
+        </div>
+        
+        <div class="footer">
+            Cerebro Digital V3.0 • API en /api • Base de datos SQLite
+        </div>
+    </div>
+    
+    <script>
+        let lastLogTime = Date.now();
+        
+        async function fetchState() {
+            try {
+                const response = await fetch('/api/state');
+                const data = await response.json();
+                if (data.success) {
+                    updateUI(data);
+                }
+            } catch (error) {
+                console.error('Error fetching state:', error);
+            }
+        }
+        
+        function updateUI(data) {
+            const state = data.state;
+            const metrics = data.metrics;
+            
+            document.getElementById('consciousness').textContent = 
+                `${(state.system.consciousness * 100).toFixed(1)}%`;
+            document.getElementById('stability').textContent = 
+                `${(state.system.stability * 100).toFixed(1)}%`;
+            document.getElementById('performance').textContent = 
+                `${(state.system.performance * 100).toFixed(1)}%`;
+            document.getElementById('age').textContent = 
+                state.system.age.toFixed(1);
+            
+            document.getElementById('systemStatus').textContent = 
+                state.system.emergency ? '🚨 EMERGENCIA' : '✅ Operativo';
+            document.getElementById('systemStatus').style.color = 
+                state.system.emergency ? '#ff4444' : '#00ff88';
+            
+            document.getElementById('cycles').textContent = 
+                state.system.cycles || 0;
+            document.getElementById('memories').textContent = 
+                metrics.memorias || 0;
+            
+            if (metrics.emocion_dominante) {
+                document.getElementById('dominantEmotion').textContent = 
+                    metrics.emocion_dominante;
+            }
+        }
+        
+        async function applySituation(type) {
+            try {
+                const response = await fetch('/api/situation', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type, intensity: 1.0 })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    addLog(`Situación aplicada: ${type}`, 'important');
+                    fetchState();
+                }
+            } catch (error) {
+                console.error('Error applying situation:', error);
+            }
+        }
+        
+        async function think() {
+            try {
+                const options = [
+                    { text: 'Explorar', utility: 60, risk: 0.3 },
+                    { text: 'Analizar', utility: 70, risk: 0.1 },
+                    { text: 'Actuar', utility: 50, risk: 0.5 },
+                    { text: 'Reflexionar', utility: 65, risk: 0.0 }
+                ];
+                const response = await fetch('/api/think', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        options: options,
+                        context: { situacion: 'decision' }
+                    })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    addLog(`🤔 Decisión: ${data.decision} (confianza: ${(data.confidence * 100).toFixed(1)}%)`, 'important');
+                }
+            } catch (error) {
+                console.error('Error thinking:', error);
+            }
+        }
+        
+        async function resetSystem() {
+            if (!confirm('¿Estás seguro de reiniciar el cerebro?')) return;
+            try {
+                const response = await fetch('/api/reset', { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    addLog('🔄 Sistema reiniciado', 'error');
+                    fetchState();
+                }
+            } catch (error) {
+                console.error('Error resetting system:', error);
+            }
+        }
+        
+        function addLog(message, type = '') {
+            const container = document.getElementById('logContainer');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const time = new Date().toLocaleTimeString();
+            entry.innerHTML = `
+                <span class="time">[${time}]</span>
+                <span class="message ${type}">${message}</span>
+            `;
+            container.appendChild(entry);
+            container.scrollTop = container.scrollHeight;
+            if (container.children.length > 50) {
+                container.removeChild(container.firstChild);
+            }
+        }
+        
+        // Inicializar
+        fetchState();
+        setInterval(fetchState, 2000);
+        
+        // Logs del sistema
+        if (window.EventSource) {
+            // Simular logs
+            setInterval(() => {
+                const messages = [
+                    'Procesando pensamientos...',
+                    'Consolidando memorias...',
+                    'Regulando emociones...',
+                    'Manteniendo homeostasis...',
+                    'Evolucionando personalidad...'
+                ];
+                const msg = messages[Math.floor(Math.random() * messages.length)];
+                if (Math.random() < 0.3) {
+                    addLog(msg);
+                }
+            }, 5000);
+        }
+        
+        console.log('🧠 Cerebro Digital V3.0 - Interfaz cargada');
+        console.log('📊 API disponible en /api');
+    </script>
+</body>
+</html>
