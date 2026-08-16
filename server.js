@@ -5,7 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { brain } from './src/core/SystemCore.js';
 
-// Importar todos los módulos
+// Importar TODOS los módulos (incluyendo ControlSystem)
 import './src/modules/BiochemicalSystem.js';
 import './src/modules/EmotionalSystem.js';
 import './src/modules/CognitiveSystem.js';
@@ -16,6 +16,7 @@ import './src/modules/EnvironmentSystem.js';
 import './src/modules/SleepSystem.js';
 import './src/modules/PersonalitySystem.js';
 import './src/modules/MotivationSystem.js';
+import './src/modules/ControlSystem.js'; // ✅ ESTABA FALTANDO
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -357,24 +358,57 @@ async function startBrain() {
     console.log(`   - Modo: ${process.env.NODE_ENV || 'development'}`);
     console.log(`   - Base de datos: ${process.env.DATABASE_PATH || './database/cerebro.db'}`);
     
-    const initialized = await brain.initializeSystem();
-    if (initialized) {
-        console.log('✅ Cerebro inicializado correctamente');
-        console.log(`🌀 Nivel de consciencia: ${(brain.systemState.consciousnessLevel * 100).toFixed(1)}%`);
-        console.log(`📊 Estabilidad: ${(brain.systemState.stability * 100).toFixed(1)}%`);
+    try {
+        // ✅ PASAR characterConfig A initializeSystem
+        const initialConfig = {
+            nombre: "Cerebro Digital",
+            genotipo: "humano",
+            genero: "neutro",
+            edad: 0,
+            experiencia: 0
+        };
         
-        // Iniciar el bucle cerebral
-        let lastTime = Date.now();
-        setInterval(() => {
-            const now = Date.now();
-            const deltaTime = (now - lastTime) / 1000;
-            lastTime = now;
-            brain.update(deltaTime);
-        }, 33); // ~30Hz
+        const initialized = await brain.initializeSystem(initialConfig);
         
-        console.log('🔄 Bucle cerebral activo (30Hz)');
-    } else {
-        console.error('❌ Error inicializando el cerebro');
+        if (initialized) {
+            console.log('✅ Cerebro inicializado correctamente');
+            console.log(`🌀 Nivel de consciencia: ${(brain.systemState.consciousnessLevel * 100).toFixed(1)}%`);
+            console.log(`📊 Estabilidad: ${(brain.systemState.stability * 100).toFixed(1)}%`);
+            console.log(`📦 Módulos activos: ${Array.from(brain.modules.keys()).join(', ')}`);
+            
+            // Iniciar el bucle cerebral
+            let lastTime = Date.now();
+            let errorCount = 0;
+            
+            setInterval(() => {
+                try {
+                    const now = Date.now();
+                    const deltaTime = (now - lastTime) / 1000;
+                    lastTime = now;
+                    brain.update(deltaTime);
+                    errorCount = 0; // Resetear contador de errores
+                } catch (error) {
+                    errorCount++;
+                    // Solo mostrar error cada 10 ciclos para no spamear logs
+                    if (errorCount % 10 === 0) {
+                        console.error(`❌ Error en bucle cerebral (${errorCount}):`, error.message);
+                    }
+                    // Si hay demasiados errores, intentar recuperar
+                    if (errorCount > 100) {
+                        console.error('⚠️ Demasiados errores, reiniciando bucle...');
+                        errorCount = 0;
+                    }
+                }
+            }, 33); // ~30Hz
+            
+            console.log('🔄 Bucle cerebral activo (30Hz)');
+        } else {
+            console.error('❌ Error inicializando el cerebro');
+            process.exit(1);
+        }
+    } catch (error) {
+        console.error('❌ Error en startBrain:', error.message);
+        console.error(error.stack);
         process.exit(1);
     }
 }
@@ -419,7 +453,9 @@ app.listen(PORT, async () => {
 process.on('SIGINT', async () => {
     console.log('\n🛑 Recibida señal de interrupción');
     console.log('💾 Guardando estado final...');
-    await brain.database.close();
+    if (brain.database) {
+        await brain.database.close();
+    }
     console.log('👋 Cerebro apagado correctamente');
     process.exit(0);
 });
@@ -427,7 +463,22 @@ process.on('SIGINT', async () => {
 process.on('SIGTERM', async () => {
     console.log('\n🛑 Recibida señal de terminación');
     console.log('💾 Guardando estado final...');
-    await brain.database.close();
+    if (brain.database) {
+        await brain.database.close();
+    }
     console.log('👋 Cerebro apagado correctamente');
     process.exit(0);
 });
+
+// ============ MANEJO DE ERRORES NO CAPTURADOS ============
+
+process.on('uncaughtException', (error) => {
+    console.error('❌ Error no capturado:', error.message);
+    console.error(error.stack);
+});
+
+process.on('unhandledRejection', (reason) => {
+    console.error('❌ Promesa rechazada no manejada:', reason);
+});
+
+export default app;
