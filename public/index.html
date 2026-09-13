@@ -1,746 +1,865 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cerebro Digital V3.0</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #0a0a1a;
-            color: #e0e0e0;
-            min-height: 100vh;
-            padding: 20px;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: rgba(20, 20, 40, 0.9);
-            border-radius: 20px;
-            padding: 30px;
-            border: 1px solid rgba(100, 100, 255, 0.2);
-            box-shadow: 0 0 60px rgba(0, 100, 255, 0.1);
-        }
-        h1 {
-            text-align: center;
-            color: #00d4ff;
-            font-size: 2.5em;
-            margin-bottom: 5px;
-            text-shadow: 0 0 30px rgba(0, 212, 255, 0.3);
-        }
-        .subtitle {
-            text-align: center;
-            color: #8888aa;
-            font-size: 1.1em;
-            margin-bottom: 30px;
-        }
-        .status-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 25px;
-        }
-        .status-card {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 12px;
-            padding: 15px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            text-align: center;
-        }
-        .status-card .label {
-            font-size: 0.8em;
-            color: #8888aa;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        .status-card .value {
-            font-size: 1.8em;
-            font-weight: bold;
-            margin-top: 5px;
-        }
-        .value.consciousness { color: #00d4ff; }
-        .value.stability { color: #00ff88; }
-        .value.performance { color: #ffd700; }
-        .value.emergency { color: #ff4444; }
-        
-        .metrics-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 10px;
-            margin-bottom: 25px;
-        }
-        .metric-item {
-            background: rgba(255, 255, 255, 0.03);
-            border-radius: 8px;
-            padding: 10px;
-            text-align: center;
-            border: 1px solid rgba(255, 255, 255, 0.03);
-        }
-        .metric-item .label {
-            font-size: 0.7em;
-            color: #666688;
-        }
-        .metric-item .value {
-            font-size: 1.2em;
-            font-weight: bold;
-            color: #aaaacc;
-        }
-        
-        .controls {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            justify-content: center;
-            margin: 20px 0;
-        }
-        .controls button {
-            padding: 10px 20px;
-            border: none;
-            border-radius: 8px;
-            background: rgba(0, 212, 255, 0.15);
-            color: #00d4ff;
-            cursor: pointer;
-            font-size: 0.9em;
-            transition: all 0.3s ease;
-            border: 1px solid rgba(0, 212, 255, 0.1);
-        }
-        .controls button:hover {
-            background: rgba(0, 212, 255, 0.25);
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(0, 212, 255, 0.15);
-        }
-        .controls button.danger {
-            background: rgba(255, 50, 50, 0.15);
-            color: #ff4444;
-            border-color: rgba(255, 50, 50, 0.1);
-        }
-        .controls button.success {
-            background: rgba(0, 255, 100, 0.15);
-            color: #00ff88;
-            border-color: rgba(0, 255, 100, 0.1);
-        }
-        
-        .log-container {
-            background: rgba(0, 0, 0, 0.4);
-            border-radius: 10px;
-            padding: 15px;
-            max-height: 200px;
-            overflow-y: auto;
-            font-family: 'Courier New', monospace;
-            font-size: 0.8em;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            margin-top: 20px;
-        }
-        .log-entry {
-            padding: 4px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-            color: #8888aa;
-        }
-        .log-entry .time {
-            color: #444466;
-            margin-right: 10px;
-        }
-        .log-entry .message { color: #aaaacc; }
-        .log-entry .error { color: #ff4444; }
-        .log-entry .warning { color: #ffaa00; }
-        .log-entry .success { color: #00ff88; }
-        
-        .footer {
-            text-align: center;
-            margin-top: 20px;
-            color: #444466;
-            font-size: 0.8em;
-        }
-        
-        .error-msg {
-            background: rgba(255, 50, 50, 0.1);
-            border: 1px solid rgba(255, 50, 50, 0.3);
-            border-radius: 10px;
-            padding: 20px;
-            text-align: center;
-            color: #ff6666;
-            margin: 20px 0;
-        }
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Cerebro Digital V4 — Visualización Neural</title>
+<style>
+    :root {
+        --bg-0: #05060d;
+        --bg-1: #0a0e1a;
+        --bg-2: #10152a;
+        --line: rgba(120,160,255,0.12);
+        --cyan: #00e5ff;
+        --violet: #a06bff;
+        --magenta: #ff4dd2;
+        --gold: #ffd54f;
+        --green: #4dffb8;
+        --red: #ff5a7a;
+        --text: #d5dbf0;
+        --muted: #6b7699;
+        --region-base: rgba(70,90,160,0.18);
+        --region-edge: rgba(140,180,255,0.35);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background:
+            radial-gradient(1200px 800px at 20% -10%, rgba(80,60,200,0.18), transparent 60%),
+            radial-gradient(900px 700px at 100% 100%, rgba(0,200,255,0.10), transparent 60%),
+            linear-gradient(180deg, var(--bg-0), var(--bg-1));
+        color: var(--text);
+        min-height: 100vh;
+        overflow-x: hidden;
+    }
 
-        /* ============ ESTILOS DEL CHAT ============ */
-        .chat-section {
-            margin-top: 20px;
-            border-top: 1px solid rgba(255,255,255,0.1);
-            padding-top: 20px;
-        }
-        .chat-section h3 {
-            color: #00d4ff;
-            margin-bottom: 15px;
-        }
-        .chat-container {
-            background: rgba(0,0,0,0.3);
-            border-radius: 12px;
-            padding: 15px;
-            max-height: 350px;
-            overflow-y: auto;
-            margin-bottom: 10px;
-            border: 1px solid rgba(255,255,255,0.05);
-        }
-        .chat-message {
-            margin-bottom: 12px;
-            padding: 10px 14px;
-            border-radius: 12px;
-            max-width: 85%;
-            word-wrap: break-word;
-            animation: fadeIn 0.3s ease;
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .user-message {
-            background: rgba(0, 212, 255, 0.15);
-            border: 1px solid rgba(0, 212, 255, 0.2);
-            margin-left: auto;
-            text-align: right;
-        }
-        .brain-message {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            margin-right: auto;
-        }
-        .chat-message .sender {
-            font-size: 0.7em;
-            color: #8888aa;
-            margin-bottom: 4px;
-        }
-        .chat-message .content {
-            font-size: 0.95em;
-            line-height: 1.5;
-        }
-        .chat-message .reasoning {
-            font-size: 0.8em;
-            color: #666688;
-            margin-top: 5px;
-            border-top: 1px solid rgba(255,255,255,0.05);
-            padding-top: 5px;
-        }
-        .chat-message .emotion-tag {
-            display: inline-block;
-            padding: 2px 12px;
-            border-radius: 10px;
-            font-size: 0.7em;
-            margin-top: 5px;
-        }
-        .emotion-tag.alegria { background: rgba(255, 213, 79, 0.2); color: #ffd54f; }
-        .emotion-tag.tristeza { background: rgba(100, 150, 255, 0.2); color: #6496ff; }
-        .emotion-tag.miedo { background: rgba(186, 104, 200, 0.2); color: #ba68c8; }
-        .emotion-tag.ira { background: rgba(229, 115, 115, 0.2); color: #e57373; }
-        .emotion-tag.confianza { background: rgba(129, 199, 132, 0.2); color: #81c784; }
-        .emotion-tag.neutral { background: rgba(255, 255, 255, 0.05); color: #8888aa; }
-        
-        .chat-message .confidence {
-            font-size: 0.7em;
-            color: #666688;
-            margin-top: 4px;
-        }
-        .chat-message .internal-state {
-            font-size: 0.65em;
-            color: #555577;
-            margin-top: 8px;
-            padding-top: 8px;
-            border-top: 1px solid rgba(255,255,255,0.05);
-            display: flex;
-            gap: 12px;
-            flex-wrap: wrap;
-        }
-        .chat-message .personality-tag {
-            font-size: 0.65em;
-            color: #555577;
-            margin-top: 4px;
-        }
-        
-        .chat-input-area {
-            display: flex;
-            gap: 10px;
-        }
-        .chat-input-area input {
-            flex: 1;
-            padding: 12px;
-            border-radius: 8px;
-            border: 1px solid rgba(255,255,255,0.1);
-            background: rgba(0,0,0,0.3);
-            color: #fff;
-            font-size: 14px;
-        }
-        .chat-input-area input:focus {
-            outline: none;
-            border-color: #00d4ff;
-            box-shadow: 0 0 20px rgba(0, 212, 255, 0.1);
-        }
-        .chat-input-area button {
-            padding: 12px 25px;
-            border: none;
-            border-radius: 8px;
-            background: #00d4ff;
-            color: #0a0a1a;
-            font-weight: bold;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        .chat-input-area button:hover {
-            background: #00b8e6;
-            transform: translateY(-2px);
-        }
-        .chat-input-area button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
-        }
-        
-        .quick-buttons {
-            display: flex;
-            gap: 8px;
-            margin-top: 8px;
-            flex-wrap: wrap;
-        }
-        .quick-btn {
-            padding: 6px 12px;
-            border-radius: 15px;
-            border: 1px solid rgba(255,255,255,0.1);
-            background: rgba(255,255,255,0.05);
-            color: #aaaacc;
-            font-size: 11px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        .quick-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 3px 10px rgba(0,0,0,0.3);
-        }
-        .quick-btn.danger { background: rgba(255,50,50,0.1); color: #ff6666; border-color: rgba(255,50,50,0.1); }
-        .quick-btn.success { background: rgba(0,255,100,0.1); color: #66ff88; border-color: rgba(0,255,100,0.1); }
-        .quick-btn.warning { background: rgba(255,200,0,0.1); color: #ffd700; border-color: rgba(255,200,0,0.1); }
-        .quick-btn.info { background: rgba(0,200,255,0.1); color: #66ddff; border-color: rgba(0,200,255,0.1); }
-        
-        .typing-indicator {
-            color: #666688;
-            font-style: italic;
-            font-size: 0.9em;
-            padding: 8px 0;
-        }
-        .system-message {
-            text-align: center;
-            color: #666688;
-            padding: 10px;
-        }
+    /* ---------- LAYOUT ---------- */
+    .app {
+        display: grid;
+        grid-template-columns: 1.35fr 1fr;
+        grid-template-rows: auto 1fr;
+        gap: 18px;
+        padding: 18px;
+        max-width: 1600px;
+        margin: 0 auto;
+        min-height: 100vh;
+    }
+    .topbar {
+        grid-column: 1 / -1;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 14px 22px;
+        background: linear-gradient(180deg, rgba(20,26,48,0.85), rgba(12,16,32,0.7));
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        backdrop-filter: blur(12px);
+    }
+    .brand {
+        display: flex; align-items: center; gap: 14px;
+    }
+    .brand-logo {
+        width: 38px; height: 38px;
+        border-radius: 12px;
+        background: conic-gradient(from 200deg, var(--cyan), var(--violet), var(--magenta), var(--cyan));
+        box-shadow: 0 0 24px rgba(160,107,255,0.45);
+        position: relative;
+    }
+    .brand-logo::after {
+        content: ''; position: absolute; inset: 4px;
+        border-radius: 9px; background: var(--bg-1);
+    }
+    .brand h1 {
+        font-size: 18px; font-weight: 700; letter-spacing: 0.5px;
+        background: linear-gradient(90deg, #e6f2ff, #9ecbff 40%, #b39dff);
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .brand small { display: block; color: var(--muted); font-size: 11px; font-weight: 400; margin-top: 2px; letter-spacing: 1.4px; text-transform: uppercase; }
 
-        @media (max-width: 600px) {
-            .container { padding: 15px; }
-            h1 { font-size: 1.8em; }
-            .status-grid { grid-template-columns: 1fr 1fr; }
-            .metrics-grid { grid-template-columns: 1fr 1fr; }
-            .chat-input-area { flex-direction: column; }
-            .chat-input-area button { width: 100%; }
-        }
-    </style>
+    .top-stats { display: flex; gap: 18px; align-items: center; }
+    .stat-pill {
+        padding: 8px 14px;
+        border-radius: 12px;
+        background: rgba(255,255,255,0.03);
+        border: 1px solid var(--line);
+        font-size: 12px;
+        display: flex; align-items: center; gap: 8px;
+    }
+    .stat-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+    .stat-pill .label { color: var(--muted); text-transform: uppercase; letter-spacing: 1px; font-size: 10px; }
+    .stat-pill .value { color: #fff; font-weight: 600; }
+
+    /* ---------- BRAIN PANEL ---------- */
+    .panel {
+        background: linear-gradient(180deg, rgba(16,22,44,0.75), rgba(9,13,26,0.75));
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 18px;
+        backdrop-filter: blur(14px);
+        position: relative;
+        overflow: hidden;
+    }
+    .panel::before {
+        content: ''; position: absolute; inset: 0;
+        background: radial-gradient(600px 400px at 50% 20%, rgba(90,120,255,0.06), transparent 60%);
+        pointer-events: none;
+    }
+    .panel-title {
+        display: flex; align-items: center; justify-content: space-between;
+        margin-bottom: 12px;
+    }
+    .panel-title h2 {
+        font-size: 14px; letter-spacing: 2px; text-transform: uppercase;
+        color: #bcd2ff; font-weight: 600;
+    }
+    .panel-title .tag {
+        font-size: 11px; color: var(--muted);
+        padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line);
+    }
+
+    .brain-stage {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 1 / 1.05;
+        max-height: 68vh;
+    }
+    .brain-stage svg { width: 100%; height: 100%; display: block; }
+
+    /* ---------- REGIONES DEL CEREBRO ---------- */
+    .region {
+        fill: var(--region-base);
+        stroke: var(--region-edge);
+        stroke-width: 1;
+        transition: fill 0.35s ease, filter 0.35s ease, stroke 0.35s ease;
+        cursor: pointer;
+    }
+    .region:hover { fill: rgba(120,160,255,0.25); }
+    .region.active {
+        stroke: rgba(0,229,255,0.9);
+    }
+    /* Intensidad dinámica: se controla vía --i (0..1) */
+    .region {
+        --i: 0;
+        fill: color-mix(in oklab, rgba(70,90,160,0.18) , rgba(0,229,255,0.9) calc(var(--i) * 100%));
+        filter: drop-shadow(0 0 calc(var(--i) * 18px) rgba(0,229,255,calc(var(--i) * 0.9)));
+    }
+    .region-label {
+        font-size: 10px;
+        fill: #9db4e6;
+        pointer-events: none;
+        text-anchor: middle;
+        letter-spacing: 1.4px;
+        text-transform: uppercase;
+        font-weight: 500;
+    }
+    .fissure {
+        stroke: rgba(140,180,255,0.25);
+        stroke-width: 1.2;
+        fill: none;
+    }
+    .brain-outline {
+        fill: none;
+        stroke: rgba(150,180,255,0.22);
+        stroke-width: 1.5;
+    }
+
+    /* Pulsos */
+    @keyframes regionPulse {
+        0% { filter: drop-shadow(0 0 0px rgba(0,229,255,0)); }
+        40% { filter: drop-shadow(0 0 28px rgba(0,229,255,0.9)); }
+        100% { filter: drop-shadow(0 0 0px rgba(0,229,255,0)); }
+    }
+    .region.pulse { animation: regionPulse 1s ease-out; }
+
+    /* ---------- LEYENDA ---------- */
+    .legend {
+        display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px;
+    }
+    .legend .chip {
+        font-size: 10px; padding: 4px 10px; border-radius: 8px;
+        background: rgba(255,255,255,0.03);
+        border: 1px solid var(--line);
+        color: #b9c6e6;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .legend .chip i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .chip.frontal i { background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+    .chip.temporal i { background: var(--violet); box-shadow: 0 0 8px var(--violet); }
+    .chip.limbic i { background: var(--magenta); box-shadow: 0 0 8px var(--magenta); }
+    .chip.parietal i { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .chip.occipital i { background: var(--gold); box-shadow: 0 0 8px var(--gold); }
+    .chip.brainstem i { background: var(--red); box-shadow: 0 0 8px var(--red); }
+    .chip.cerebellum i { background: #7fdcff; box-shadow: 0 0 8px #7fdcff; }
+
+    /* ---------- LEARNING FEED ---------- */
+    .feed {
+        margin-top: 14px;
+        max-height: 32vh;
+        overflow-y: auto;
+        padding-right: 4px;
+        display: flex; flex-direction: column; gap: 8px;
+    }
+    .feed::-webkit-scrollbar { width: 6px; }
+    .feed::-webkit-scrollbar-thumb { background: rgba(140,180,255,0.25); border-radius: 3px; }
+    .feed-item {
+        font-size: 12px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: rgba(255,255,255,0.025);
+        border: 1px solid var(--line);
+        display: flex; gap: 10px;
+        animation: feedIn 0.4s ease;
+    }
+    @keyframes feedIn {
+        from { opacity: 0; transform: translateY(-6px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .feed-item .ic {
+        width: 26px; height: 26px; border-radius: 8px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 14px;
+        background: rgba(0,229,255,0.08);
+        border: 1px solid rgba(0,229,255,0.25);
+        flex-shrink: 0;
+    }
+    .feed-item .body { flex: 1; min-width: 0; }
+    .feed-item .title { color: #dbe6ff; font-weight: 500; margin-bottom: 2px; }
+    .feed-item .meta { color: var(--muted); font-size: 10.5px; letter-spacing: 0.4px; }
+    .feed-item.gold .ic { background: rgba(255,213,79,0.08); border-color: rgba(255,213,79,0.35); }
+    .feed-item.violet .ic { background: rgba(160,107,255,0.08); border-color: rgba(160,107,255,0.35); }
+    .feed-item.green .ic { background: rgba(77,255,184,0.08); border-color: rgba(77,255,184,0.35); }
+    .feed-item.red .ic { background: rgba(255,90,122,0.08); border-color: rgba(255,90,122,0.35); }
+    .feed-empty { text-align: center; color: var(--muted); font-size: 12px; padding: 20px; }
+
+    /* ---------- CHAT PANEL ---------- */
+    .chat-panel {
+        display: flex; flex-direction: column;
+        min-height: 0;
+    }
+    .chat-scroll {
+        flex: 1;
+        overflow-y: auto;
+        padding: 6px 4px 6px 0;
+        display: flex; flex-direction: column; gap: 12px;
+        min-height: 40vh;
+        max-height: 60vh;
+    }
+    .chat-scroll::-webkit-scrollbar { width: 6px; }
+    .chat-scroll::-webkit-scrollbar-thumb { background: rgba(140,180,255,0.25); border-radius: 3px; }
+
+    .msg {
+        max-width: 92%;
+        padding: 12px 14px;
+        border-radius: 14px;
+        font-size: 13.5px;
+        line-height: 1.55;
+        animation: msgIn 0.35s ease;
+        position: relative;
+    }
+    @keyframes msgIn {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .msg.user {
+        align-self: flex-end;
+        background: linear-gradient(135deg, rgba(0,229,255,0.14), rgba(0,150,255,0.10));
+        border: 1px solid rgba(0,229,255,0.25);
+        border-bottom-right-radius: 4px;
+    }
+    .msg.brain {
+        align-self: flex-start;
+        background: linear-gradient(135deg, rgba(160,107,255,0.12), rgba(90,60,180,0.06));
+        border: 1px solid rgba(160,107,255,0.22);
+        border-bottom-left-radius: 4px;
+    }
+    .msg .sender {
+        font-size: 10px; letter-spacing: 1.6px; text-transform: uppercase;
+        color: var(--muted); margin-bottom: 6px;
+    }
+    .msg .content { color: #eaf0ff; }
+    .msg .reasoning {
+        margin-top: 8px; padding-top: 8px;
+        border-top: 1px solid rgba(255,255,255,0.06);
+        color: #91a0c4; font-size: 11.5px; font-style: italic;
+    }
+    .msg .chips { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip-sm {
+        font-size: 10px; padding: 3px 9px; border-radius: 20px;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid var(--line);
+        color: #c8d3ee;
+    }
+    .chip-sm.emotion-alegria { color: var(--gold); border-color: rgba(255,213,79,0.35); }
+    .chip-sm.emotion-miedo { color: var(--violet); border-color: rgba(160,107,255,0.35); }
+    .chip-sm.emotion-ira { color: var(--red); border-color: rgba(255,90,122,0.35); }
+    .chip-sm.emotion-confianza { color: var(--green); border-color: rgba(77,255,184,0.35); }
+    .chip-sm.emotion-tristeza { color: #7f9bff; border-color: rgba(120,150,255,0.35); }
+
+    .msg .mini-stats {
+        margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap;
+        font-size: 10.5px; color: var(--muted);
+    }
+    .msg .mini-stats b { color: #cfd9f5; font-weight: 500; }
+
+    .typing {
+        color: var(--muted); font-style: italic; font-size: 12px;
+        padding: 6px 0;
+    }
+    .typing::after {
+        content: '...';
+        animation: dots 1.2s steps(4) infinite;
+        display: inline-block; width: 20px;
+    }
+    @keyframes dots { 0%{content:'';} 25%{content:'.';} 50%{content:'..';} 75%{content:'...';} }
+
+    /* ---------- INPUT ---------- */
+    .composer {
+        margin-top: 12px;
+        display: flex; gap: 10px;
+        padding-top: 12px;
+        border-top: 1px solid var(--line);
+    }
+    .composer input {
+        flex: 1;
+        background: rgba(10,14,26,0.8);
+        border: 1px solid var(--line);
+        color: #eaf0ff;
+        padding: 12px 14px;
+        border-radius: 12px;
+        font-size: 13.5px;
+        font-family: inherit;
+        outline: none;
+        transition: border 0.2s, box-shadow 0.2s;
+    }
+    .composer input:focus {
+        border-color: rgba(0,229,255,0.6);
+        box-shadow: 0 0 0 3px rgba(0,229,255,0.08);
+    }
+    .composer button {
+        background: linear-gradient(135deg, var(--cyan), var(--violet));
+        color: #060815;
+        border: none;
+        padding: 0 22px;
+        border-radius: 12px;
+        font-weight: 700;
+        letter-spacing: 0.4px;
+        cursor: pointer;
+        font-family: inherit;
+        transition: transform 0.15s, box-shadow 0.2s, opacity 0.2s;
+    }
+    .composer button:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 24px rgba(0,229,255,0.25);
+    }
+    .composer button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ---------- QUICK BUTTONS ---------- */
+    .quick {
+        display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;
+    }
+    .quick button {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid var(--line);
+        color: #b8c6e6;
+        font-size: 11px;
+        padding: 6px 12px;
+        border-radius: 20px;
+        cursor: pointer;
+        font-family: inherit;
+        transition: all 0.2s;
+    }
+    .quick button:hover { border-color: rgba(0,229,255,0.45); color: #eaf0ff; transform: translateY(-1px); }
+    .quick button.danger { color: #ffa8b8; border-color: rgba(255,90,122,0.28); }
+    .quick button.success { color: #a6ffd5; border-color: rgba(77,255,184,0.28); }
+    .quick button.warning { color: #ffe08a; border-color: rgba(255,213,79,0.28); }
+    .quick button.info { color: #a9e5ff; border-color: rgba(0,229,255,0.28); }
+
+    /* ---------- SCROLLABLE SECTIONS ---------- */
+    .side-stack {
+        display: flex; flex-direction: column; gap: 18px;
+        min-height: 0;
+    }
+
+    /* ---------- RESPONSIVE ---------- */
+    @media (max-width: 1000px) {
+        .app { grid-template-columns: 1fr; }
+        .brain-stage { max-height: 55vh; aspect-ratio: 1/1; }
+        .chat-scroll { max-height: 45vh; }
+    }
+</style>
 </head>
 <body>
-    <div class="container">
-        <h1>🧠 Cerebro Digital V3.0</h1>
-        <p class="subtitle">Sistema de consciencia artificial con evolución autónoma</p>
-        
-        <div id="errorMsg" class="error-msg" style="display:none;">
-            ⚠️ Error conectando con el cerebro. La API no está respondiendo.
-        </div>
-        
-        <div class="status-grid" id="statusGrid">
-            <div class="status-card">
-                <div class="label">Consciencia</div>
-                <div class="value consciousness" id="consciousness">--%</div>
-            </div>
-            <div class="status-card">
-                <div class="label">Estabilidad</div>
-                <div class="value stability" id="stability">--%</div>
-            </div>
-            <div class="status-card">
-                <div class="label">Rendimiento</div>
-                <div class="value performance" id="performance">--%</div>
-            </div>
-            <div class="status-card">
-                <div class="label">Estado</div>
-                <div class="value" id="systemStatus" style="color:#ffaa00;">⏳ Cargando...</div>
+
+<div class="app">
+    <!-- TOPBAR -->
+    <header class="topbar">
+        <div class="brand">
+            <div class="brand-logo"></div>
+            <div>
+                <h1>Cerebro Digital</h1>
+                <small>Neural Visualization · V4</small>
             </div>
         </div>
-        
-        <div class="metrics-grid" id="metricsGrid">
-            <div class="metric-item">
-                <div class="label">Ciclos</div>
-                <div class="value" id="cycles">--</div>
-            </div>
-            <div class="metric-item">
-                <div class="label">Módulos Activos</div>
-                <div class="value" id="modules">--</div>
-            </div>
-            <div class="metric-item">
-                <div class="label">Alertas</div>
-                <div class="value" id="alerts">--</div>
-            </div>
-            <div class="metric-item">
-                <div class="label">Emoción Dominante</div>
-                <div class="value" id="dominantEmotion">--</div>
-            </div>
+        <div class="top-stats">
+            <div class="stat-pill"><span class="dot" id="dot-status"></span><span class="label">Estado</span><span class="value" id="stat-status">—</span></div>
+            <div class="stat-pill"><span class="label">Consciencia</span><span class="value" id="stat-cons">—</span></div>
+            <div class="stat-pill"><span class="label">Estabilidad</span><span class="value" id="stat-stab">—</span></div>
+            <div class="stat-pill"><span class="label">Ciclos</span><span class="value" id="stat-cycles">—</span></div>
         </div>
-        
-        <div class="controls">
-            <button onclick="applySituation('recompensa')" class="success">🎁 Recompensa</button>
-            <button onclick="applySituation('amenaza')" class="danger">⚠️ Amenaza</button>
-            <button onclick="applySituation('alegria')" class="success">😄 Alegría</button>
-            <button onclick="applySituation('tristeza')">😢 Tristeza</button>
-            <button onclick="applySituation('reposo')" class="success">😴 Descanso</button>
-            <button onclick="applySituation('estres_alto')" class="danger">🔥 Estrés</button>
-            <button onclick="think()">🤔 Pensar</button>
+    </header>
+
+    <!-- LEFT: BRAIN + FEED -->
+    <section class="panel">
+        <div class="panel-title">
+            <h2>Mapa Neural Activo</h2>
+            <span class="tag" id="brain-tag">Esperando actividad…</span>
         </div>
-        
-        <!-- ============ CHAT ============ -->
-        <div class="chat-section">
-            <h3>💬 Conversación con el Cerebro</h3>
-            <div class="chat-container" id="chatMessages">
-                <div class="system-message">
-                    🤖 Hola, soy tu cerebro digital. Cuéntame cualquier situación y te daré mi respuesta auténtica.
+        <div class="brain-stage">
+            <svg viewBox="0 0 400 420" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <radialGradient id="glowFrontal" cx="50%" cy="50%" r="50%">
+                        <stop offset="0%" stop-color="#00e5ff" stop-opacity="0.55"/>
+                        <stop offset="100%" stop-color="#00e5ff" stop-opacity="0"/>
+                    </radialGradient>
+                    <radialGradient id="glowTemporal" cx="50%" cy="50%" r="50%">
+                        <stop offset="0%" stop-color="#a06bff" stop-opacity="0.55"/>
+                        <stop offset="100%" stop-color="#a06bff" stop-opacity="0"/>
+                    </radialGradient>
+                    <radialGradient id="glowLimbic" cx="50%" cy="50%" r="50%">
+                        <stop offset="0%" stop-color="#ff4dd2" stop-opacity="0.6"/>
+                        <stop offset="100%" stop-color="#ff4dd2" stop-opacity="0"/>
+                    </radialGradient>
+                    <radialGradient id="glowParietal" cx="50%" cy="50%" r="50%">
+                        <stop offset="0%" stop-color="#4dffb8" stop-opacity="0.55"/>
+                        <stop offset="100%" stop-color="#4dffb8" stop-opacity="0"/>
+                    </radialGradient>
+                    <radialGradient id="glowOccipital" cx="50%" cy="50%" r="50%">
+                        <stop offset="0%" stop-color="#ffd54f" stop-opacity="0.55"/>
+                        <stop offset="100%" stop-color="#ffd54f" stop-opacity="0"/>
+                    </radialGradient>
+                    <radialGradient id="glowBrainstem" cx="50%" cy="50%" r="50%">
+                        <stop offset="0%" stop-color="#ff5a7a" stop-opacity="0.55"/>
+                        <stop offset="100%" stop-color="#ff5a7a" stop-opacity="0"/>
+                    </radialGradient>
+                    <radialGradient id="glowCerebellum" cx="50%" cy="50%" r="50%">
+                        <stop offset="0%" stop-color="#7fdcff" stop-opacity="0.55"/>
+                        <stop offset="100%" stop-color="#7fdcff" stop-opacity="0"/>
+                    </radialGradient>
+                </defs>
+
+                <!-- Contorno del cerebro (vista superior estilizada) -->
+                <path class="brain-outline" d="M200,55 C120,55 55,110 55,185 C55,250 90,310 145,340 C175,357 185,368 200,375 C215,368 225,357 255,340 C310,310 345,250 345,185 C345,110 280,55 200,55 Z"/>
+
+                <!-- Fisura longitudinal -->
+                <path class="fissure" d="M200,60 L200,360"/>
+
+                <!-- LÓBULO FRONTAL (arriba-izq y arriba-der) -->
+                <path id="region-frontal" class="region" data-region="frontal"
+                      d="M200,60 C160,60 120,80 105,110 C95,130 95,160 110,180 L200,180 L290,180 C305,160 305,130 295,110 C280,80 240,60 200,60 Z"/>
+                <text class="region-label" x="200" y="130">Frontal · Decisión</text>
+
+                <!-- LÓBULO PARIETAL (centro-arriba) -->
+                <path id="region-parietal" class="region" data-region="parietal"
+                      d="M110,185 L200,185 L290,185 C300,200 300,225 290,240 L200,240 L110,240 C100,225 100,200 110,185 Z"/>
+                <text class="region-label" x="200" y="220">Parietal · Atención</text>
+
+                <!-- LÓBULOS TEMPORALES (izq y der, laterales) -->
+                <path id="region-temporal" class="region" data-region="temporal"
+                      d="M105,245 C90,255 78,275 78,300 C78,325 95,345 120,352 C140,357 165,350 180,335 L180,250 Z
+                         M295,245 C310,255 322,275 322,300 C322,325 305,345 280,352 C260,357 235,350 220,335 L220,250 Z"/>
+                <text class="region-label" x="200" y="300">Temporal · Memoria</text>
+
+                <!-- SISTEMA LÍMBICO (núcleo central) -->
+                <ellipse id="region-limbic" class="region" data-region="limbic"
+                         cx="200" cy="270" rx="42" ry="34"/>
+                <text class="region-label" x="200" y="274">Límbico · Emoción</text>
+
+                <!-- LÓBULO OCCIPITAL (abajo) -->
+                <path id="region-occipital" class="region" data-region="occipital"
+                      d="M140,345 C155,355 180,360 200,360 C220,360 245,355 260,345 C270,352 270,362 255,368 C235,375 215,375 200,375 C185,375 165,375 145,368 C130,362 130,352 140,345 Z"/>
+                <text class="region-label" x="200" y="362">Occipital · Visual</text>
+
+                <!-- TALLO ENCEFÁLICO (base central) -->
+                <path id="region-brainstem" class="region" data-region="brainstem"
+                      d="M188,375 C185,388 188,400 200,405 C212,400 215,388 212,375 Z"/>
+                <text class="region-label" x="200" y="395" font-size="8">Tallo</text>
+
+                <!-- CEREBELO -->
+                <path id="region-cerebellum" class="region" data-region="cerebellum"
+                      d="M150,368 C160,380 180,388 200,388 C220,388 240,380 250,368 C255,380 245,394 200,398 C155,394 145,380 150,368 Z"
+                      opacity="0.85"/>
+            </svg>
+        </div>
+        <div class="legend">
+            <span class="chip frontal"><i></i>Frontal · Decisión/Planificación</span>
+            <span class="chip parietal"><i></i>Parietal · Atención</span>
+            <span class="chip temporal"><i></i>Temporal · Memoria</span>
+            <span class="chip limbic"><i></i>Límbico · Emoción</span>
+            <span class="chip occipital"><i></i>Occipital · Visual</span>
+            <span class="chip brainstem"><i></i>Tallo · Homeostasis</span>
+            <span class="chip cerebellum"><i></i>Cerebelo · Motor</span>
+        </div>
+
+        <div class="panel-title" style="margin-top: 18px;">
+            <h2>Feed de Aprendizaje</h2>
+            <span class="tag" id="feed-count">0 eventos</span>
+        </div>
+        <div class="feed" id="feed">
+            <div class="feed-empty">Aún no hay aprendizajes registrados. Interactúa con el cerebro para verlo aprender.</div>
+        </div>
+    </section>
+
+    <!-- RIGHT: CHAT + STATUS -->
+    <div class="side-stack">
+        <section class="panel chat-panel">
+            <div class="panel-title">
+                <h2>Conversación Neural</h2>
+                <span class="tag">POST /api/chat</span>
+            </div>
+            <div class="chat-scroll" id="chat">
+                <div class="msg brain">
+                    <div class="sender">🤖 Cerebro</div>
+                    <div class="content">Hola. Soy tu cerebro digital. Cada mensaje activa regiones distintas de mi mapa. Cuéntame algo y verás cómo se ilumina lo que pienso.</div>
                 </div>
             </div>
-            <div class="chat-input-area">
-                <input type="text" id="chatInput" placeholder="Escribe una situación o pregunta..." autofocus>
-                <button onclick="sendChatMessage()" id="sendBtn">Enviar 📤</button>
+            <div class="composer">
+                <input id="input" type="text" placeholder="Escribe algo al cerebro…" autocomplete="off"/>
+                <button id="send">Enviar</button>
             </div>
-            <div class="quick-buttons">
-                <button onclick="quickChat('Estoy en una situación peligrosa, ¿qué harías?')" class="quick-btn danger">⚠️ Peligro</button>
-                <button onclick="quickChat('Me siento muy feliz hoy, ¿cómo reaccionarías?')" class="quick-btn success">😊 Felicidad</button>
-                <button onclick="quickChat('Tengo que tomar una decisión difícil, ¿qué harías?')" class="quick-btn warning">🤔 Decisión</button>
-                <button onclick="quickChat('Alguien necesita ayuda, ¿qué harías?')" class="quick-btn info">🆘 Ayuda</button>
-                <button onclick="quickChat('¿Qué piensas sobre el sentido de la vida?')" class="quick-btn">🌌 Filosofía</button>
+            <div class="quick">
+                <button class="danger" data-q="Estoy en una situación peligrosa, ¿qué harías?">⚠️ Peligro</button>
+                <button class="success" data-q="Me siento muy feliz hoy, ¿cómo reaccionarías?">😊 Felicidad</button>
+                <button class="warning" data-q="Tengo que tomar una decisión difícil, ¿qué harías?">🤔 Decisión</button>
+                <button class="info" data-q="Alguien necesita ayuda, ¿qué harías?">🆘 Ayuda</button>
+                <button data-q="¿Qué piensas sobre el sentido de la vida?">🌌 Filosofía</button>
             </div>
-        </div>
-        
-        <div class="log-container" id="logContainer">
-            <div class="log-entry">
-                <span class="time">[SISTEMA]</span>
-                <span class="message">Cerebro Digital V3.0 conectado</span>
+        </section>
+
+        <section class="panel">
+            <div class="panel-title">
+                <h2>Estado Corporal</h2>
+                <span class="tag" id="emotion-tag">—</span>
             </div>
-        </div>
-        
-        <div class="footer">
-            Cerebro Digital V3.0 • API en /api • Evolución autónoma
-        </div>
+            <div id="mini" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;font-size:12px;">
+                <div class="stat-pill"><span class="label">⚡ Energía</span><span class="value" id="m-energy">—</span></div>
+                <div class="stat-pill"><span class="label">🧪 Dopamina</span><span class="value" id="m-dopa">—</span></div>
+                <div class="stat-pill"><span class="label">🧬 Cortisol</span><span class="value" id="m-cort">—</span></div>
+                <div class="stat-pill"><span class="label">🫁 Oxígeno</span><span class="value" id="m-oxi">—</span></div>
+            </div>
+        </section>
     </div>
-    
-    <script>
-        // ============ VARIABLES GLOBALES ============
-        let errorCount = 0;
-        
-        // ============ FUNCIONES DE ESTADO ============
-        async function fetchState() {
-            try {
-                const response = await fetch('/api/state');
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                const data = await response.json();
-                if (data.success) {
-                    updateUI(data);
-                    document.getElementById('errorMsg').style.display = 'none';
-                    errorCount = 0;
-                } else {
-                    throw new Error('API returned success: false');
-                }
-            } catch (error) {
-                console.error('Error fetching state:', error);
-                errorCount++;
-                document.getElementById('errorMsg').style.display = 'block';
-                document.getElementById('systemStatus').textContent = '⚠️ Error';
-                document.getElementById('systemStatus').style.color = '#ff4444';
-                
-                if (errorCount > 10) {
-                    document.getElementById('errorMsg').textContent = 
-                        '⚠️ No se puede conectar con el cerebro. Verifica que el servidor esté funcionando.';
-                }
-            }
+</div>
+
+<script>
+/* ============================================================
+   CEREBRO DIGITAL V4 — Frontend
+   ============================================================ */
+
+const $ = (sel) => document.querySelector(sel);
+const chat = $('#chat');
+const input = $('#input');
+const sendBtn = $('#send');
+const feed = $('#feed');
+const feedCount = $('#feed-count');
+const brainTag = $('#brain-tag');
+
+const REGIONS = ['frontal','parietal','temporal','limbic','occipital','brainstem','cerebellum'];
+const regionEls = {};
+REGIONS.forEach(r => regionEls[r] = document.getElementById('region-' + r));
+
+let feedItems = [];
+let lastRegions = {};
+
+/* ---------- Helpers ---------- */
+function escapeHtml(str) {
+    return String(str)
+        .replaceAll('&','&amp;')
+        .replaceAll('<','&lt;')
+        .replaceAll('>','&gt;')
+        .replaceAll('"','&quot;')
+        .replaceAll("'", '&#039;');
+}
+
+function pct(v) { return Math.round((v || 0) * 100) + '%'; }
+
+function nowTime() {
+    return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+/* ---------- Brain ---------- */
+function updateBrain(regions) {
+    if (!regions) return;
+    REGIONS.forEach(r => {
+        const v = Math.max(0, Math.min(1, regions[r] || 0));
+        const el = regionEls[r];
+        if (!el) return;
+        el.style.setProperty('--i', v.toFixed(3));
+        // Pulso si sube respecto al frame anterior
+        const prev = lastRegions[r] || 0;
+        if (v - prev > 0.15) {
+            el.classList.remove('pulse');
+            void el.offsetWidth;
+            el.classList.add('pulse');
+            setTimeout(() => el.classList.remove('pulse'), 1100);
         }
-        
-        function updateUI(data) {
-            const state = data.state;
-            const metrics = data.metrics;
-            
-            if (state && state.system) {
-                document.getElementById('consciousness').textContent = 
-                    `${((state.system.consciousness || 0) * 100).toFixed(1)}%`;
-                document.getElementById('stability').textContent = 
-                    `${((state.system.stability || 0) * 100).toFixed(1)}%`;
-                document.getElementById('performance').textContent = 
-                    `${((state.system.performance || 0) * 100).toFixed(1)}%`;
-                
-                const status = state.system.emergency ? '🚨 EMERGENCIA' : '✅ Operativo';
-                document.getElementById('systemStatus').textContent = status;
-                document.getElementById('systemStatus').style.color = 
-                    state.system.emergency ? '#ff4444' : '#00ff88';
-                
-                document.getElementById('cycles').textContent = state.system.cycles || 0;
-                
-                const modules = state.modules || {};
-                const moduleCount = Object.keys(modules).length;
-                document.getElementById('modules').textContent = moduleCount > 0 ? moduleCount : '--';
-                
-                document.getElementById('alerts').textContent = state.system.alerts || 0;
-            }
-            
-            let emotion = '--';
-            if (metrics && metrics.emocion_dominante) {
-                emotion = metrics.emocion_dominante;
-            } else if (state && state.modules && state.modules.emotional) {
-                const emotional = state.modules.emotional;
-                const emotions = ['alegria', 'tristeza', 'miedo', 'ira', 'confianza'];
-                let max = 0;
-                let dominant = 'neutral';
-                emotions.forEach(e => {
-                    if (emotional[e] && emotional[e] > max) {
-                        max = emotional[e];
-                        dominant = e;
-                    }
-                });
-                if (max > 0) emotion = dominant;
-            }
-            document.getElementById('dominantEmotion').textContent = emotion;
-        }
-        
-        // ============ FUNCIONES DE SITUACIONES ============
-        async function applySituation(type) {
-            try {
-                const response = await fetch('/api/situation', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ type, intensity: 1.0 })
-                });
-                const data = await response.json();
-                if (data.success) {
-                    addLog(`✅ Situación aplicada: ${type}`, 'success');
-                    fetchState();
-                } else {
-                    addLog(`❌ Error: ${data.error || 'desconocido'}`, 'error');
-                }
-            } catch (error) {
-                console.error('Error applying situation:', error);
-                addLog(`❌ Error: ${error.message}`, 'error');
-            }
-        }
-        
-        async function think() {
-            try {
-                const options = [
-                    { text: 'Explorar', utility: 60, risk: 0.3 },
-                    { text: 'Analizar', utility: 70, risk: 0.1 },
-                    { text: 'Actuar', utility: 50, risk: 0.5 },
-                    { text: 'Reflexionar', utility: 65, risk: 0.0 }
-                ];
-                const response = await fetch('/api/think', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        options: options,
-                        context: { situacion: 'decision' }
-                    })
-                });
-                const data = await response.json();
-                if (data.success) {
-                    addLog(`🤔 Decisión: ${data.decision} (confianza: ${(data.confidence * 100).toFixed(1)}%)`, 'success');
-                } else {
-                    addLog(`❌ Error: ${data.error || 'desconocido'}`, 'error');
-                }
-            } catch (error) {
-                console.error('Error thinking:', error);
-                addLog(`❌ Error: ${error.message}`, 'error');
-            }
-        }
-        
-        // ============ FUNCIONES DEL LOG ============
-        function addLog(message, type = '') {
-            const container = document.getElementById('logContainer');
-            const entry = document.createElement('div');
-            entry.className = 'log-entry';
-            const time = new Date().toLocaleTimeString();
-            entry.innerHTML = `
-                <span class="time">[${time}]</span>
-                <span class="message ${type}">${message}</span>
-            `;
-            container.appendChild(entry);
-            container.scrollTop = container.scrollHeight;
-            if (container.children.length > 50) {
-                container.removeChild(container.firstChild);
-            }
-        }
-        
-        // ============ FUNCIONES DEL CHAT ============
-        async function sendChatMessage() {
-            const input = document.getElementById('chatInput');
-            const message = input.value.trim();
-            const sendBtn = document.getElementById('sendBtn');
-            
-            if (!message) return;
-            
-            addChatMessage('user', message);
-            input.value = '';
-            input.disabled = true;
-            sendBtn.disabled = true;
-            sendBtn.textContent = '⏳ Enviando...';
-            
-            addTypingIndicator();
-            
-            try {
-                const response = await fetch('/api/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        message: message,
-                        context: { source: 'web_interface' }
-                    })
-                });
-                
-                const data = await response.json();
-                removeTypingIndicator();
-                
-                if (data.success) {
-                    addChatMessage('brain', data.message, {
-                        emotion: data.emotion || 'neutral',
-                        emoji: data.emoji || '🧠',
-                        confidence: data.confidence || 0.5,
-                        reasoning: data.reasoning || '',
-                        personality: data.personality || {},
-                        internal_state: data.internal_state || {}
-                    });
-                    
-                    if (data.state) {
-                        updateUI({ state: { system: data.state }, metrics: {} });
-                    }
-                } else {
-                    addChatMessage('brain', 'Lo siento, no pude procesar tu mensaje. ' + (data.error || ''), {
-                        emotion: 'neutral',
-                        emoji: '😕',
-                        confidence: 0
-                    });
-                }
-            } catch (error) {
-                removeTypingIndicator();
-                addChatMessage('brain', 'Error de conexión: ' + error.message, {
-                    emotion: 'neutral',
-                    emoji: '😕',
-                    confidence: 0
-                });
-            }
-            
-            input.disabled = false;
-            sendBtn.disabled = false;
-            sendBtn.textContent = 'Enviar 📤';
-            input.focus();
-        }
-        
-        function quickChat(message) {
-            document.getElementById('chatInput').value = message;
-            sendChatMessage();
-        }
-        
-        function addChatMessage(sender, content, metadata = {}) {
-            const container = document.getElementById('chatMessages');
-            const div = document.createElement('div');
-            div.className = `chat-message ${sender === 'user' ? 'user-message' : 'brain-message'}`;
-            
-            const senderName = sender === 'user' ? '🧑 Tú' : `🤖 Cerebro ${metadata.emoji || ''}`;
-            const emotionClass = metadata.emotion || 'neutral';
-            const confidenceText = metadata.confidence ? `Confianza: ${(metadata.confidence * 100).toFixed(0)}%` : '';
-            const reasoningText = metadata.reasoning || '';
-            
-            // Personalidad
-            let personalityHtml = '';
-            if (metadata.personality && Object.keys(metadata.personality).length > 0) {
-                const p = metadata.personality;
-                const traitNames = {
-                    openness: 'Apertura',
-                    conscientiousness: 'Conciencia',
-                    extraversion: 'Extraversión',
-                    agreeableness: 'Amabilidad',
-                    neuroticism: 'Neuroticismo'
-                };
-                const traitEmojis = {
-                    openness: '🎨',
-                    conscientiousness: '📋',
-                    extraversion: '🗣️',
-                    agreeableness: '💚',
-                    neuroticism: '🌊'
-                };
-                const traits = ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'neuroticism'];
-                const display = traits
-                    .filter(t => p[t] !== undefined)
-                    .map(t => `${traitEmojis[t] || '•'} ${traitNames[t] || t}: ${Math.round((p[t] || 0) * 100)}%`)
-                    .join(' ');
-                personalityHtml = `<div class="personality-tag">🧬 ${display}</div>`;
-            }
-            
-            // Estado interno
-            let internalHtml = '';
-            if (metadata.internal_state) {
-                const s = metadata.internal_state;
-                internalHtml = `
-                    <div class="internal-state">
-                        <span>⚡ Energía: ${Math.round(s.energia || 0)}%</span>
-                        <span>🧪 Dopamina: ${Math.round(s.dopamina || 0)}%</span>
-                        <span>🧬 Cortisol: ${Math.round(s.cortisol || 0)}%</span>
-                    </div>
-                `;
-            }
-            
-            div.innerHTML = `
-                <div class="sender">${senderName}</div>
-                <div class="content">${content}</div>
-                ${reasoningText ? `<div class="reasoning">💭 ${reasoningText}</div>` : ''}
-                ${metadata.emotion ? `<div class="emotion-tag ${emotionClass}">${metadata.emotion} ${metadata.emoji || ''}</div>` : ''}
-                ${confidenceText ? `<div class="confidence">${confidenceText}</div>` : ''}
-                ${personalityHtml}
-                ${internalHtml}
-            `;
-            
-            container.appendChild(div);
-            container.scrollTop = container.scrollHeight;
-        }
-        
-        function addTypingIndicator() {
-            const container = document.getElementById('chatMessages');
-            const div = document.createElement('div');
-            div.id = 'typingIndicator';
-            div.className = 'typing-indicator';
-            div.textContent = '🧠 El cerebro está pensando...';
-            container.appendChild(div);
-            container.scrollTop = container.scrollHeight;
-        }
-        
-        function removeTypingIndicator() {
-            const indicator = document.getElementById('typingIndicator');
-            if (indicator) indicator.remove();
-        }
-        
-        // ============ EVENTOS ============
-        document.addEventListener('DOMContentLoaded', () => {
-            const input = document.getElementById('chatInput');
-            if (input) {
-                input.addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter') {
-                        sendChatMessage();
-                    }
-                });
-                setTimeout(() => input.focus(), 500);
-            }
+    });
+    lastRegions = { ...regions };
+
+    // Etiqueta superior con la región dominante
+    let maxR = 'frontal', maxV = 0;
+    REGIONS.forEach(r => { if ((regions[r] || 0) > maxV) { maxV = regions[r]; maxR = r; } });
+    const names = {
+        frontal: 'Decisión · Frontal',
+        parietal: 'Atención · Parietal',
+        temporal: 'Memoria · Temporal',
+        limbic: 'Emoción · Límbico',
+        occipital: 'Visual · Occipital',
+        brainstem: 'Homeostasis · Tallo',
+        cerebellum: 'Motor · Cerebelo'
+    };
+    brainTag.textContent = `${names[maxR]}  ${pct(maxV)}`;
+}
+
+/* ---------- Feed ---------- */
+function addFeed({ icon, title, meta, tone }) {
+    // Eliminar el estado vacío
+    const empty = feed.querySelector('.feed-empty');
+    if (empty) empty.remove();
+
+    const item = document.createElement('div');
+    item.className = 'feed-item ' + (tone || '');
+    item.innerHTML = `
+        <div class="ic">${escapeHtml(icon || '•')}</div>
+        <div class="body">
+            <div class="title">${escapeHtml(title)}</div>
+            <div class="meta">${escapeHtml(meta)} · ${nowTime()}</div>
+        </div>`;
+    feed.prepend(item);
+    feedItems.push(item);
+    if (feedItems.length > 40) {
+        const old = feedItems.shift();
+        old.remove();
+    }
+    feedCount.textContent = feedItems.length + ' eventos';
+}
+
+/* ---------- Chat ---------- */
+function appendChat(sender, content, meta = {}) {
+    const msg = document.createElement('div');
+    msg.className = 'msg ' + (sender === 'user' ? 'user' : 'brain');
+
+    const senderName = sender === 'user' ? '🧑 Tú' : '🤖 Cerebro';
+    let chipsHtml = '';
+    if (meta.emotion) {
+        const em = meta.emotion;
+        chipsHtml += `<span class="chip-sm emotion-${escapeHtml(em)}">${escapeHtml(em)} ${escapeHtml(meta.emoji || '')}</span>`;
+    }
+    if (meta.confidence !== undefined) {
+        chipsHtml += `<span class="chip-sm">confianza ${Math.round(meta.confidence * 100)}%</span>`;
+    }
+    if (meta.activated && sender === 'brain') {
+        const top = Object.entries(meta.activated)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 3)
+            .filter(([, v]) => v > 0.25);
+        top.forEach(([r, v]) => {
+            chipsHtml += `<span class="chip-sm">${escapeHtml(r)} ${Math.round(v * 100)}%</span>`;
         });
-        
-        // ============ INICIALIZACIÓN ============
-        console.log('🧠 Cerebro Digital V3.0 - Interfaz cargada');
-        console.log('📊 API disponible en /api');
-        
-        fetchState();
-        setInterval(fetchState, 2000);
-    </script>
+    }
+
+    const mini = meta.internal_state ? `
+        <div class="mini-stats">
+            <span>⚡ <b>${Math.round(meta.internal_state.energia || 0)}</b> energía</span>
+            <span>🧪 <b>${Math.round(meta.internal_state.dopamina || 0)}</b> dopamina</span>
+            <span>🧬 <b>${Math.round(meta.internal_state.cortisol || 0)}</b> cortisol</span>
+        </div>` : '';
+
+    msg.innerHTML = `
+        <div class="sender">${senderName}</div>
+        <div class="content">${escapeHtml(content)}</div>
+        ${meta.reasoning ? `<div class="reasoning">💭 ${escapeHtml(meta.reasoning)}</div>` : ''}
+        ${chipsHtml ? `<div class="chips">${chipsHtml}</div>` : ''}
+        ${mini}
+    `;
+    chat.appendChild(msg);
+    chat.scrollTop = chat.scrollHeight;
+}
+
+function showTyping() {
+    const t = document.createElement('div');
+    t.className = 'typing';
+    t.id = 'typing';
+    t.textContent = 'El cerebro está procesando';
+    chat.appendChild(t);
+    chat.scrollTop = chat.scrollHeight;
+}
+function hideTyping() {
+    const t = document.getElementById('typing');
+    if (t) t.remove();
+}
+
+/* ---------- Estado ---------- */
+async function fetchState() {
+    try {
+        const r = await fetch('/api/state');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const data = await r.json();
+        if (!data.success) throw new Error('sin success');
+        applyState(data);
+    } catch (e) {
+        $('#stat-status').textContent = 'offline';
+        $('#dot-status').style.background = '#ff5a7a';
+    }
+}
+
+function applyState(data) {
+    const s = data.state?.system || {};
+    $('#stat-status').textContent = s.emergency ? 'emergencia' : 'operativo';
+    $('#dot-status').style.background = s.emergency ? '#ff5a7a' : '#4dffb8';
+    $('#stat-cons').textContent = Math.round((s.consciousness || 0) * 100) + '%';
+    $('#stat-stab').textContent = Math.round((s.stability || 0) * 100) + '%';
+    $('#stat-cycles').textContent = s.cycles || 0;
+
+    const mod = data.state?.modules || {};
+    const bio = mod.biochemical || {};
+    const emo = mod.emotional || {};
+
+    $('#m-energy').textContent = Math.round(bio.energia || 0) + '%';
+    $('#m-dopa').textContent = Math.round(bio.dopamina || 0) + '%';
+    $('#m-cort').textContent = Math.round(bio.cortisol || 0) + '%';
+    $('#m-oxi').textContent = Math.round(bio.oxigeno || 0) + '%';
+
+    // Emoción dominante
+    const emos = ['alegria', 'tristeza', 'miedo', 'ira', 'confianza'];
+    let dom = 'neutral', domV = 0;
+    emos.forEach(e => { if ((emo[e] || 0) > domV) { domV = emo[e]; dom = e; } });
+    $('#emotion-tag').textContent = `${dom} ${Math.round(domV)}%`;
+
+    // Regiones
+    updateBrain(computeRegionsFromState(data));
+}
+
+function computeRegionsFromState(data) {
+    const mod = data.state?.modules || {};
+    const cog = mod.cognitive || {};
+    const mem = mod.memory || {};
+    const emo = mod.emotional || {};
+    const bio = mod.biochemical || {};
+    const vis = mod.visual || {};
+    const motor = mod.motor || {};
+    const cl = (v) => Math.max(0, Math.min(1, v || 0));
+    return {
+        frontal: cl(((cog.razonamiento || 0) + (cog.tomaDecisiones || 0) + (cog.planificacion || 0)) / 300),
+        parietal: cl(((cog.atencion || 0) + (cog.concentracion || 0)) / 200),
+        temporal: cl((((mem.episodica || 0) / 2000) + ((mem.memoriaSemantica || 0) / 200)) / 2),
+        limbic: cl(((emo.alegria || 0) + (emo.miedo || 0) + (emo.ira || 0) + (emo.confianza || 0)) / 400),
+        occipital: cl(vis.intensidadVisual || 0.5),
+        brainstem: cl(((bio.energia || 0) + (bio.oxigeno || 0)) / 200),
+        cerebellum: cl(((motor.coordinacion || 0) + (motor.precision || 0)) / 200)
+    };
+}
+
+/* ---------- Envío de chat ---------- */
+async function sendMessage() {
+    const text = input.value.trim();
+    if (!text) return;
+
+    appendChat('user', text);
+    input.value = '';
+    input.disabled = true;
+    sendBtn.disabled = true;
+    showTyping();
+
+    // Feed: registro de la interacción
+    addFeed({
+        icon: '💬',
+        title: `Nueva entrada: "${text.length > 60 ? text.substring(0,60) + '…' : text}"`,
+        meta: 'procesando lenguaje',
+        tone: 'violet'
+    });
+
+    try {
+        const r = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: text, context: { source: 'neural_viz' } })
+        });
+        const data = await r.json();
+        hideTyping();
+
+        if (data.success) {
+            appendChat('brain', data.message, {
+                emotion: data.emotion,
+                emoji: data.emoji,
+                confidence: data.confidence,
+                reasoning: data.reasoning,
+                internal_state: data.internal_state,
+                activated: data.activated_regions
+            });
+            if (data.activated_regions) updateBrain(data.activated_regions);
+
+            // Feed de aprendizaje
+            const learned = buildLearningEntry(data, text);
+            addFeed(learned);
+
+            // Refrescar estado
+            fetchState();
+        } else {
+            appendChat('brain', 'No pude procesar tu mensaje: ' + (data.error || ''), {});
+        }
+    } catch (e) {
+        hideTyping();
+        appendChat('brain', 'Error de conexión: ' + e.message, {});
+        addFeed({ icon: '⚠️', title: 'Error de conexión', meta: e.message, tone: 'red' });
+    }
+
+    input.disabled = false;
+    sendBtn.disabled = false;
+    input.focus();
+}
+
+function buildLearningEntry(data, userText) {
+    const emo = data.emotion || 'neutral';
+    const conf = data.confidence || 0;
+    let icon = '📚', tone = '';
+    if (emo === 'alegria') { icon = '🌟'; tone = 'gold'; }
+    else if (emo === 'miedo' || emo === 'ira') { icon = '⚡'; tone = 'red'; }
+    else if (emo === 'confianza') { icon = '💎'; tone = 'green'; }
+    else if (emo === 'tristeza') { icon = '🌧️'; tone = 'violet'; }
+
+    const learnedText = `Aprendí a responder con ${emo} (confianza ${Math.round(conf*100)}%)`;
+    const reason = data.reasoning ? data.reasoning.substring(0, 90) : 'procesamiento emocional';
+
+    return {
+        icon,
+        title: learnedText,
+        meta: reason,
+        tone
+    };
+}
+
+/* ---------- Eventos ---------- */
+sendBtn.addEventListener('click', sendMessage);
+input.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
+document.querySelectorAll('.quick button').forEach(btn => {
+    btn.addEventListener('click', () => {
+        input.value = btn.dataset.q;
+        sendMessage();
+    });
+});
+
+/* ---------- Arranque ---------- */
+fetchState();
+setInterval(fetchState, 2500);
+
+// Feed inicial decorativo
+setTimeout(() => addFeed({
+    icon: '🧠',
+    title: 'Sistema neural inicializado',
+    meta: 'todos los módulos operativos',
+    tone: 'green'
+}), 600);
+</script>
 </body>
 </html>
