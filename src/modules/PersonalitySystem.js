@@ -10,61 +10,30 @@ export class PersonalitySystem {
         this.eventListeners = [];
         this.personalityDevelopment = 0;
         this.lastUpdateTime = 0;
-        this.config = {}; // ✅ Inicializar config como objeto vacío
+        this.config = {};
+        this._persistCounter = 0;
     }
 
     async initialize(characterConfig) {
-        this.config = characterConfig || { genotipo: 'resiliente' }; // ✅ Asegurar que config existe
+        this.config = characterConfig || { genotipo: 'resiliente' };
         this.initializeTraits();
         this.initializeState();
         this.setupPersonalityMatrix();
-        systemCore.logSystem('Sistema de personalidad V3.0 inicializado');
+        systemCore.logSystem('Sistema de personalidad V4 inicializado');
     }
 
     initializeTraits() {
-        // ✅ Verificar que config existe antes de usarlo
         const genotipo = this.config?.genotipo || 'resiliente';
-        
         const baseTraits = {
-            resiliente: {
-                openness: 0.5,
-                conscientiousness: 0.7,
-                extraversion: 0.5,
-                agreeableness: 0.7,
-                neuroticism: 0.3
-            },
-            vulnerable: {
-                openness: 0.4,
-                conscientiousness: 0.5,
-                extraversion: 0.3,
-                agreeableness: 0.6,
-                neuroticism: 0.8
-            },
-            audaz: {
-                openness: 0.7,
-                conscientiousness: 0.5,
-                extraversion: 0.8,
-                agreeableness: 0.4,
-                neuroticism: 0.4
-            },
-            intelectual: {
-                openness: 0.9,
-                conscientiousness: 0.8,
-                extraversion: 0.3,
-                agreeableness: 0.5,
-                neuroticism: 0.3
-            },
-            social: {
-                openness: 0.6,
-                conscientiousness: 0.6,
-                extraversion: 0.9,
-                agreeableness: 0.8,
-                neuroticism: 0.4
-            }
+            resiliente: { openness: 0.5, conscientiousness: 0.7, extraversion: 0.5, agreeableness: 0.7, neuroticism: 0.3 },
+            vulnerable: { openness: 0.4, conscientiousness: 0.5, extraversion: 0.3, agreeableness: 0.6, neuroticism: 0.8 },
+            audaz:      { openness: 0.7, conscientiousness: 0.5, extraversion: 0.8, agreeableness: 0.4, neuroticism: 0.4 },
+            intelectual:{ openness: 0.9, conscientiousness: 0.8, extraversion: 0.3, agreeableness: 0.5, neuroticism: 0.3 },
+            social:     { openness: 0.6, conscientiousness: 0.6, extraversion: 0.9, agreeableness: 0.8, neuroticism: 0.4 },
+            humano:     { openness: 0.5, conscientiousness: 0.5, extraversion: 0.5, agreeableness: 0.5, neuroticism: 0.5 }
         };
-
         const base = baseTraits[genotipo] || baseTraits.resiliente;
-        
+
         this.traits = {
             openness: base.openness,
             conscientiousness: base.conscientiousness,
@@ -72,24 +41,7 @@ export class PersonalitySystem {
             agreeableness: base.agreeableness,
             neuroticism: base.neuroticism
         };
-
-        this.subTraits = {
-            curiosity: 0.5 + (base.openness - 0.5) * 0.5,
-            creativity: 0.5 + (base.openness - 0.5) * 0.4,
-            imagination: 0.5 + (base.openness - 0.5) * 0.3,
-            discipline: 0.5 + (base.conscientiousness - 0.5) * 0.5,
-            organization: 0.5 + (base.conscientiousness - 0.5) * 0.4,
-            responsibility: 0.5 + (base.conscientiousness - 0.5) * 0.3,
-            sociability: 0.5 + (base.extraversion - 0.5) * 0.5,
-            assertiveness: 0.5 + (base.extraversion - 0.5) * 0.4,
-            energy: 0.5 + (base.extraversion - 0.5) * 0.3,
-            empathy: 0.5 + (base.agreeableness - 0.5) * 0.5,
-            cooperation: 0.5 + (base.agreeableness - 0.5) * 0.4,
-            trust: 0.5 + (base.agreeableness - 0.5) * 0.3,
-            anxiety: 0.5 + (base.neuroticism - 0.5) * 0.5,
-            vulnerability: 0.5 + (base.neuroticism - 0.5) * 0.4,
-            moodiness: 0.5 + (base.neuroticism - 0.5) * 0.3
-        };
+        this.updateSubTraits(0);
     }
 
     initializeState() {
@@ -105,164 +57,165 @@ export class PersonalitySystem {
             satisfaccion: 0.5,
             proposito: 0.4
         };
-
         this.personalityDevelopment = 0;
-        this.personalityMatrix = {};
         this.lastUpdateTime = systemCore.systemTime || Date.now();
     }
 
     setupPersonalityMatrix() {
+        this.updatePersonalityMatrix(0);
+    }
+
+    updateSubTraits() {
+        const t = this.traits;
+        this.subTraits = {
+            curiosity: 0.5 + (t.openness - 0.5) * 0.6,
+            creativity: 0.5 + (t.openness - 0.5) * 0.5,
+            imagination: 0.5 + (t.openness - 0.5) * 0.4,
+            discipline: 0.5 + (t.conscientiousness - 0.5) * 0.6,
+            organization: 0.5 + (t.conscientiousness - 0.5) * 0.5,
+            responsibility: 0.5 + (t.conscientiousness - 0.5) * 0.4,
+            sociability: 0.5 + (t.extraversion - 0.5) * 0.6,
+            assertiveness: 0.5 + (t.extraversion - 0.5) * 0.5,
+            energy: 0.5 + (t.extraversion - 0.5) * 0.4,
+            empathy: 0.5 + (t.agreeableness - 0.5) * 0.6,
+            cooperation: 0.5 + (t.agreeableness - 0.5) * 0.5,
+            trust: 0.5 + (t.agreeableness - 0.5) * 0.4,
+            anxiety: 0.5 + (t.neuroticism - 0.5) * 0.6,
+            vulnerability: 0.5 + (t.neuroticism - 0.5) * 0.5,
+            moodiness: 0.5 + (t.neuroticism - 0.5) * 0.4
+        };
+        Object.keys(this.subTraits).forEach(k => this.subTraits[k] = this.clamp(this.subTraits[k], 0, 1));
+    }
+
+    updatePersonalityMatrix() {
+        const t = this.traits;
         this.personalityMatrix = {
             emotional: {
-                stability: 1 - this.traits.neuroticism,
-                intensity: this.traits.extraversion * 0.5 + 0.5,
-                regulation: 1 - this.traits.neuroticism * 0.5
+                stability: 1 - t.neuroticism,
+                intensity: t.extraversion * 0.5 + 0.5,
+                regulation: 1 - t.neuroticism * 0.5
             },
             cognitive: {
-                attention: 1 - this.traits.neuroticism * 0.3,
-                creativity: this.traits.openness * 0.7,
-                decision_making: 1 - this.traits.neuroticism * 0.2
+                attention: 1 - t.neuroticism * 0.3,
+                creativity: t.openness * 0.7,
+                decision_making: 1 - t.neuroticism * 0.2
             },
             memory: {
-                retention: this.traits.conscientiousness * 0.5,
-                retrieval: 1 - this.traits.neuroticism * 0.2,
-                learning: this.traits.openness * 0.6
+                retention: t.conscientiousness * 0.5,
+                retrieval: 1 - t.neuroticism * 0.2,
+                learning: t.openness * 0.6
             },
             motor: {
-                coordination: 1 - this.traits.neuroticism * 0.2,
-                precision: this.traits.conscientiousness * 0.4,
-                speed: this.traits.extraversion * 0.3
+                coordination: 1 - t.neuroticism * 0.2,
+                precision: t.conscientiousness * 0.4,
+                speed: t.extraversion * 0.3
             },
             social: {
-                connection: this.traits.agreeableness * 0.7,
-                influence: this.traits.extraversion * 0.5,
-                trust: this.traits.agreeableness * 0.6
+                connection: t.agreeableness * 0.7,
+                influence: t.extraversion * 0.5,
+                trust: t.agreeableness * 0.6
             }
         };
     }
 
-    onEvent(callback) {
-        this.eventListeners.push(callback);
-    }
-
+    onEvent(cb) { this.eventListeners.push(cb); }
     emitEvent(type, data) {
-        this.eventListeners.forEach(cb => cb({ type, data, module: 'personality' }));
+        this.eventListeners.forEach(cb => {
+            try { cb({ type, data, module: 'personality' }); }
+            catch (err) { console.error('❌ pers listener:', err); }
+        });
     }
 
     update(input, deltaTime) {
         this.lastUpdateTime = systemCore.systemTime || Date.now();
-        
         if (!input || !input.biochemical || !input.emotional) return this.getState();
 
         this.applyEmotionalInfluences(input.emotional, deltaTime);
         this.applyBiochemicalInfluences(input.biochemical, deltaTime);
         this.developPersonality(input, deltaTime);
-        this.updatePersonalityMatrix(deltaTime);
-        this.applyHomeostasis(deltaTime);
+        this.updatePersonalityMatrix();
+        this.applyHomeostasis();
+
+        this._persistCounter += deltaTime;
+        if (this._persistCounter > 30) {
+            this._persistCounter = 0;
+            this.persistToDatabase();
+        }
 
         return this.getState();
     }
 
+    async persistToDatabase() {
+        if (!systemCore.database?.isInitialized) return;
+        try {
+            await systemCore.database.savePersonality({
+                openness: this.traits.openness,
+                conscientiousness: this.traits.conscientiousness,
+                extraversion: this.traits.extraversion,
+                agreeableness: this.traits.agreeableness,
+                neuroticism: this.traits.neuroticism
+            });
+        } catch (_) { /* noop */ }
+    }
+
     applyEmotionalInfluences(emotionalState, deltaTime) {
-        if (!emotionalState) return;
-        
         const intensity = emotionalState.intensidad || 0;
-        
         if (intensity > 0.5) {
             const dominant = this.getDominantEmotion(emotionalState);
-            
-            switch(dominant) {
+            switch (dominant) {
                 case 'alegria':
-                    this.traits.extraversion += 0.05 * deltaTime * intensity;
-                    this.traits.agreeableness += 0.03 * deltaTime * intensity;
+                    this.traits.extraversion = this.clamp(this.traits.extraversion + 0.05 * deltaTime * intensity, 0.1, 0.9);
+                    this.traits.agreeableness = this.clamp(this.traits.agreeableness + 0.03 * deltaTime * intensity, 0.1, 0.9);
                     break;
                 case 'tristeza':
-                    this.traits.neuroticism += 0.05 * deltaTime * intensity;
-                    this.traits.extraversion -= 0.03 * deltaTime * intensity;
+                    this.traits.neuroticism = this.clamp(this.traits.neuroticism + 0.05 * deltaTime * intensity, 0.1, 0.9);
                     break;
                 case 'miedo':
-                    this.traits.neuroticism += 0.08 * deltaTime * intensity;
-                    this.traits.openness -= 0.03 * deltaTime * intensity;
+                    this.traits.neuroticism = this.clamp(this.traits.neuroticism + 0.08 * deltaTime * intensity, 0.1, 0.9);
+                    this.traits.openness = this.clamp(this.traits.openness - 0.03 * deltaTime * intensity, 0.1, 0.9);
                     break;
                 case 'ira':
-                    this.traits.agreeableness -= 0.05 * deltaTime * intensity;
-                    this.traits.neuroticism += 0.04 * deltaTime * intensity;
+                    this.traits.agreeableness = this.clamp(this.traits.agreeableness - 0.05 * deltaTime * intensity, 0.1, 0.9);
                     break;
                 case 'confianza':
-                    this.traits.agreeableness += 0.04 * deltaTime * intensity;
-                    this.traits.neuroticism -= 0.03 * deltaTime * intensity;
+                    this.traits.agreeableness = this.clamp(this.traits.agreeableness + 0.04 * deltaTime * intensity, 0.1, 0.9);
+                    this.traits.neuroticism = this.clamp(this.traits.neuroticism - 0.03 * deltaTime * intensity, 0.1, 0.9);
                     break;
             }
         }
-        
-        this.updateSubTraits(deltaTime);
+        this.updateSubTraits();
     }
 
-    getDominantEmotion(emotionalState) {
-        let max = 0;
-        let dominant = 'neutral';
+    getDominantEmotion(e) {
         const emotions = ['alegria', 'tristeza', 'miedo', 'ira', 'confianza', 'sorpresa', 'asco'];
-        
-        emotions.forEach(emotion => {
-            if ((emotionalState[emotion] || 0) > max) {
-                max = emotionalState[emotion] || 0;
-                dominant = emotion;
-            }
+        let max = 0, dom = 'neutral';
+        emotions.forEach(em => {
+            if ((e[em] || 0) > max) { max = e[em]; dom = em; }
         });
-        
-        return dominant;
+        return dom;
     }
 
-    applyBiochemicalInfluences(bioState, deltaTime) {
-        if (!bioState) return;
-        
-        const dopamine = (bioState.dopamina || 50) / 100;
-        const serotonin = (bioState.serotonina || 50) / 100;
-        const cortisol = (bioState.cortisol || 20) / 100;
-        
-        this.traits.extraversion += (dopamine - 0.5) * 0.02 * deltaTime;
-        this.traits.openness += (dopamine - 0.5) * 0.015 * deltaTime;
-        this.traits.agreeableness += (serotonin - 0.5) * 0.02 * deltaTime;
-        this.traits.neuroticism -= (serotonin - 0.5) * 0.015 * deltaTime;
-        this.traits.neuroticism += (cortisol - 0.2) * 0.03 * deltaTime;
-        this.traits.conscientiousness -= (cortisol - 0.2) * 0.01 * deltaTime;
-        
-        this.updateSubTraits(deltaTime);
-    }
+    applyBiochemicalInfluences(bio, deltaTime) {
+        const dopamina = (bio.dopamina || 50) / 100;
+        const serotonina = (bio.serotonina || 50) / 100;
+        const cortisol = (bio.cortisol || 20) / 100;
 
-    updateSubTraits(deltaTime) {
-        this.subTraits.curiosity = 0.5 + (this.traits.openness - 0.5) * 0.6;
-        this.subTraits.creativity = 0.5 + (this.traits.openness - 0.5) * 0.5;
-        this.subTraits.imagination = 0.5 + (this.traits.openness - 0.5) * 0.4;
-        this.subTraits.discipline = 0.5 + (this.traits.conscientiousness - 0.5) * 0.6;
-        this.subTraits.organization = 0.5 + (this.traits.conscientiousness - 0.5) * 0.5;
-        this.subTraits.responsibility = 0.5 + (this.traits.conscientiousness - 0.5) * 0.4;
-        this.subTraits.sociability = 0.5 + (this.traits.extraversion - 0.5) * 0.6;
-        this.subTraits.assertiveness = 0.5 + (this.traits.extraversion - 0.5) * 0.5;
-        this.subTraits.energy = 0.5 + (this.traits.extraversion - 0.5) * 0.4;
-        this.subTraits.empathy = 0.5 + (this.traits.agreeableness - 0.5) * 0.6;
-        this.subTraits.cooperation = 0.5 + (this.traits.agreeableness - 0.5) * 0.5;
-        this.subTraits.trust = 0.5 + (this.traits.agreeableness - 0.5) * 0.4;
-        this.subTraits.anxiety = 0.5 + (this.traits.neuroticism - 0.5) * 0.6;
-        this.subTraits.vulnerability = 0.5 + (this.traits.neuroticism - 0.5) * 0.5;
-        this.subTraits.moodiness = 0.5 + (this.traits.neuroticism - 0.5) * 0.4;
-        
-        Object.keys(this.subTraits).forEach(key => {
-            this.subTraits[key] = this.clamp(this.subTraits[key], 0, 1);
-        });
+        this.traits.extraversion = this.clamp(this.traits.extraversion + (dopamina - 0.5) * 0.02 * deltaTime, 0.1, 0.9);
+        this.traits.openness = this.clamp(this.traits.openness + (dopamina - 0.5) * 0.015 * deltaTime, 0.1, 0.9);
+        this.traits.agreeableness = this.clamp(this.traits.agreeableness + (serotonina - 0.5) * 0.02 * deltaTime, 0.1, 0.9);
+        this.traits.neuroticism = this.clamp(this.traits.neuroticism + (cortisol - 0.2) * 0.03 * deltaTime, 0.1, 0.9);
+        this.updateSubTraits();
     }
 
     developPersonality(input, deltaTime) {
         const learning = input.cognitive?.aprendizaje || 50;
-        const experience = input.cognitive?.experiencia || 0;
         const emotionalDepth = input.emotional?.intensidad || 0;
-        
-        this.personalityDevelopment += (learning / 100) * 0.001 * deltaTime;
-        this.personalityDevelopment += experience * 0.0001 * deltaTime;
-        this.personalityDevelopment += emotionalDepth * 0.001 * deltaTime;
-        
-        this.personalityDevelopment = this.clamp(this.personalityDevelopment, 0, 1);
-        
+
+        this.personalityDevelopment = this.clamp(
+            this.personalityDevelopment + (learning / 100) * 0.001 * deltaTime + emotionalDepth * 0.001 * deltaTime,
+            0, 1
+        );
+
         this.state.madurez = 0.3 + this.personalityDevelopment * 0.5;
         this.state.sabiduria = 0.2 + this.personalityDevelopment * 0.4;
         this.state.autenticidad = 0.4 + this.personalityDevelopment * 0.3;
@@ -271,99 +224,39 @@ export class PersonalitySystem {
         this.state.integridad = 0.6 + this.traits.conscientiousness * 0.3;
     }
 
-    updatePersonalityMatrix(deltaTime) {
-        this.personalityMatrix = {
-            emotional: {
-                stability: 1 - this.traits.neuroticism,
-                intensity: this.traits.extraversion * 0.5 + 0.5,
-                regulation: 1 - this.traits.neuroticism * 0.5
-            },
-            cognitive: {
-                attention: 1 - this.traits.neuroticism * 0.3,
-                creativity: this.traits.openness * 0.7,
-                decision_making: 1 - this.traits.neuroticism * 0.2
-            },
-            memory: {
-                retention: this.traits.conscientiousness * 0.5,
-                retrieval: 1 - this.traits.neuroticism * 0.2,
-                learning: this.traits.openness * 0.6
-            },
-            motor: {
-                coordination: 1 - this.traits.neuroticism * 0.2,
-                precision: this.traits.conscientiousness * 0.4,
-                speed: this.traits.extraversion * 0.3
-            },
-            social: {
-                connection: this.traits.agreeableness * 0.7,
-                influence: this.traits.extraversion * 0.5,
-                trust: this.traits.agreeableness * 0.6
-            }
-        };
-    }
-
-    applyHomeostasis(deltaTime) {
-        Object.keys(this.traits).forEach(key => {
-            this.traits[key] = this.clamp(this.traits[key], 0.1, 0.9);
-        });
-        
-        Object.keys(this.subTraits).forEach(key => {
-            this.subTraits[key] = this.clamp(this.subTraits[key], 0.1, 0.9);
-        });
-        
-        Object.keys(this.state).forEach(key => {
-            if (typeof this.state[key] === 'number') {
-                this.state[key] = this.clamp(this.state[key], 0, 1);
-            }
+    applyHomeostasis() {
+        Object.keys(this.traits).forEach(k => this.traits[k] = this.clamp(this.traits[k], 0.1, 0.9));
+        Object.keys(this.subTraits).forEach(k => this.subTraits[k] = this.clamp(this.subTraits[k], 0.1, 0.9));
+        Object.keys(this.state).forEach(k => {
+            if (typeof this.state[k] === 'number') this.state[k] = this.clamp(this.state[k], 0, 1);
         });
     }
 
-    applyModulation(modulation) {
-        if (modulation.madurez !== undefined) {
-            this.state.madurez = Math.min(1, Math.max(0, this.state.madurez + modulation.madurez));
-        }
-        if (modulation.desarrollo !== undefined) {
-            this.personalityDevelopment = Math.min(1, Math.max(0, this.personalityDevelopment + modulation.desarrollo));
-        }
-        if (modulation.apertura !== undefined) {
-            this.traits.openness = Math.min(1, Math.max(0, this.traits.openness + modulation.apertura));
-        }
-        if (modulation.conciencia !== undefined) {
-            this.traits.conscientiousness = Math.min(1, Math.max(0, this.traits.conscientiousness + modulation.conciencia));
-        }
-        if (modulation.extraversion !== undefined) {
-            this.traits.extraversion = Math.min(1, Math.max(0, this.traits.extraversion + modulation.extraversion));
-        }
-        if (modulation.amabilidad !== undefined) {
-            this.traits.agreeableness = Math.min(1, Math.max(0, this.traits.agreeableness + modulation.amabilidad));
-        }
-        if (modulation.neuroticismo !== undefined) {
-            this.traits.neuroticism = Math.min(1, Math.max(0, this.traits.neuroticism + modulation.neuroticismo));
-        }
-        if (modulation.creatividad !== undefined) {
-            this.subTraits.creativity = Math.min(1, Math.max(0, this.subTraits.creativity + modulation.creatividad));
-        }
-        this.updateSubTraits(0.1);
+    applyModulation(mod) {
+        if (mod.madurez !== undefined) this.state.madurez = this.clamp(this.state.madurez + mod.madurez, 0, 1);
+        if (mod.desarrollo !== undefined) this.personalityDevelopment = this.clamp(this.personalityDevelopment + mod.desarrollo, 0, 1);
+        if (mod.apertura !== undefined) this.traits.openness = this.clamp(this.traits.openness + mod.apertura, 0.1, 0.9);
+        if (mod.conciencia !== undefined) this.traits.conscientiousness = this.clamp(this.traits.conscientiousness + mod.conciencia, 0.1, 0.9);
+        if (mod.extraversion !== undefined) this.traits.extraversion = this.clamp(this.traits.extraversion + mod.extraversion, 0.1, 0.9);
+        if (mod.amabilidad !== undefined) this.traits.agreeableness = this.clamp(this.traits.agreeableness + mod.amabilidad, 0.1, 0.9);
+        if (mod.neuroticismo !== undefined) this.traits.neuroticism = this.clamp(this.traits.neuroticism + mod.neuroticismo, 0.1, 0.9);
+        this.updateSubTraits();
+        this.updatePersonalityMatrix();
     }
 
     getPersonalityDescription() {
-        const descriptions = [];
-        
-        if (this.traits.openness > 0.7) descriptions.push('abierto a nuevas experiencias');
-        else if (this.traits.openness < 0.3) descriptions.push('tradicional y cauteloso');
-        
-        if (this.traits.conscientiousness > 0.7) descriptions.push('altamente disciplinado');
-        else if (this.traits.conscientiousness < 0.3) descriptions.push('espontáneo y despreocupado');
-        
-        if (this.traits.extraversion > 0.7) descriptions.push('extrovertido y sociable');
-        else if (this.traits.extraversion < 0.3) descriptions.push('introvertido y reservado');
-        
-        if (this.traits.agreeableness > 0.7) descriptions.push('empático y cooperativo');
-        else if (this.traits.agreeableness < 0.3) descriptions.push('desafiante y competitivo');
-        
-        if (this.traits.neuroticism > 0.7) descriptions.push('emocionalmente sensible');
-        else if (this.traits.neuroticism < 0.3) descriptions.push('emocionalmente estable');
-        
-        return descriptions.join(', ');
+        const d = [];
+        if (this.traits.openness > 0.7) d.push('abierto');
+        else if (this.traits.openness < 0.3) d.push('tradicional');
+        if (this.traits.conscientiousness > 0.7) d.push('disciplinado');
+        else if (this.traits.conscientiousness < 0.3) d.push('espontáneo');
+        if (this.traits.extraversion > 0.7) d.push('extrovertido');
+        else if (this.traits.extraversion < 0.3) d.push('introvertido');
+        if (this.traits.agreeableness > 0.7) d.push('empático');
+        else if (this.traits.agreeableness < 0.3) d.push('desafiante');
+        if (this.traits.neuroticism > 0.7) d.push('sensible');
+        else if (this.traits.neuroticism < 0.3) d.push('estable');
+        return d.join(', ') || 'equilibrado';
     }
 
     getState() {
@@ -377,9 +270,7 @@ export class PersonalitySystem {
         };
     }
 
-    clamp(value, min, max) {
-        return Math.max(min, Math.min(max, value));
-    }
+    clamp(v, mn, mx) { return Math.max(mn, Math.min(mx, v)); }
 
     reset() {
         this.initializeTraits();
