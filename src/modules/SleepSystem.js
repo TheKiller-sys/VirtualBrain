@@ -9,17 +9,16 @@ export class SleepSystem {
         this.sleepHistory = [];
         this.dreamLog = [];
         this.lastUpdateTime = 0;
-        this.circadianRhythm = { phase: 0, amplitude: 0.3, period: 86400 };
+        this.circadianRhythm = { phase: 0, amplitude: 0.3, period: 86400, wakeThreshold: 0.7, sleepThreshold: 0.3 };
         this.dreamGenerationTimer = 0;
-        this.sleepDepth = 0;
         this.cycleCounter = 0;
+        this._persistCounter = 0;
     }
 
     async initialize(characterConfig) {
         this.config = characterConfig || { genotipo: 'humano' };
         this.initializeState();
-        this.setupCircadianRhythm();
-        systemCore.logSystem('Sistema de sueño V3.0 inicializado');
+        systemCore.logSystem('Sistema de sueño V4 inicializado');
     }
 
     initializeState() {
@@ -44,76 +43,75 @@ export class SleepSystem {
         this.lastUpdateTime = systemCore.systemTime || Date.now();
         this.circadianPhase = 0;
         this.dreamGenerationTimer = 0;
-        this.sleepDepth = 0;
         this.cycleCounter = 0;
     }
 
-    setupCircadianRhythm() {
-        this.circadianRhythm = { phase: 0, amplitude: 0.3, period: 86400, wakeThreshold: 0.7, sleepThreshold: 0.3 };
-    }
-
-    onEvent(callback) {
-        this.eventListeners.push(callback);
-    }
-
+    onEvent(cb) { this.eventListeners.push(cb); }
     emitEvent(type, data) {
         this.eventListeners.forEach(cb => {
-            try {
-                cb({ type, data, module: 'sleep' });
-            } catch (error) {
-                console.error('❌ Error en listener de sueño:', error);
-            }
+            try { cb({ type, data, module: 'sleep' }); }
+            catch (err) { console.error('❌ sleep listener:', err); }
         });
     }
 
     update(input, deltaTime) {
         this.lastUpdateTime = systemCore.systemTime || Date.now();
         if (!input || !input.biochemical) return this.getState();
+
         this.updateCircadianRhythm(deltaTime);
         this.calculateSleepPressure(input.biochemical, deltaTime);
         this.processSleepState(input, deltaTime);
         this.applySleepEffects(input, deltaTime);
         this.processDreams(deltaTime);
         this.recordHistory();
+
+        this._persistCounter += deltaTime;
+        if (this._persistCounter > 30) {
+            this._persistCounter = 0;
+            this.persistToDatabase();
+        }
         return this.getState();
     }
 
-    updateCircadianRhythm(deltaTime) {
-        this.circadianPhase += deltaTime / this.circadianRhythm.period;
-        this.circadianPhase = this.circadianPhase % 1;
-        const rhythmValue = 0.5 + 0.5 * Math.sin(this.circadianPhase * Math.PI * 2);
-        this.state.profundidad = rhythmValue;
+    async persistToDatabase() {
+        if (!systemCore.database?.isInitialized) return;
+        try {
+            await systemCore.database.saveSleepState(this.state);
+        } catch (_) { /* noop */ }
     }
 
-    calculateSleepPressure(bioState, deltaTime) {
-        const wakeTime = this.state.estado === 'despierto' ? deltaTime : 0;
-        const activityFactor = (bioState.energia || 50) < 50 ? 1.5 : 1.0;
-        const stressFactor = (bioState.cortisol || 0) > 60 ? 1.3 : 1.0;
-        this.state.presionSueño += wakeTime * 0.008 * activityFactor * stressFactor;
-        this.state.presionSueño = this.clamp(this.state.presionSueño, 0, 100);
+    updateCircadianRhythm(dt) {
+        this.circadianPhase = (this.circadianPhase + dt / this.circadianRhythm.period) % 1;
+    }
+
+    calculateSleepPressure(bio, dt) {
+        const wakeTime = this.state.estado === 'despierto' ? dt : 0;
+        const activity = (bio.energia || 50) < 50 ? 1.5 : 1.0;
+        const stress = (bio.cortisol || 0) > 60 ? 1.3 : 1.0;
+        this.state.presionSueño = this.clamp(this.state.presionSueño + wakeTime * 0.008 * activity * stress, 0, 100);
         if (this.state.estado !== 'despierto') {
-            this.state.deudaSueño *= (1 - 0.008 * deltaTime * this.state.calidadSueño);
+            this.state.deudaSueño *= (1 - 0.008 * dt * this.state.calidadSueño);
         }
     }
 
-    processSleepState(input, deltaTime) {
-        const bioState = input.biochemical || {};
-        const emoState = input.emotional || {};
-        const wakeThreshold = 0.7 - ((bioState.cortisol || 0) / 100) * 0.2;
-        const sleepThreshold = 0.3 + ((bioState.serotonina || 50) / 100) * 0.2;
-        const circadianFactor = this.circadianPhase;
-        switch(this.state.estado) {
+    processSleepState(input, dt) {
+        const bio = input.biochemical || {};
+        const wakeThreshold = 0.7 - ((bio.cortisol || 0) / 100) * 0.2;
+        const sleepThreshold = 0.3 + ((bio.serotonina || 50) / 100) * 0.2;
+        const cp = this.circadianPhase;
+
+        switch (this.state.estado) {
             case 'despierto':
-                if (this.state.presionSueño > 70 && circadianFactor < sleepThreshold) this.transitionTo('somnoliento');
+                if (this.state.presionSueño > 70 && cp < sleepThreshold) this.transitionTo('somnoliento');
                 break;
             case 'somnoliento':
-                if (this.state.presionSueño > 80 && circadianFactor < 0.4) this.transitionTo('dormido');
+                if (this.state.presionSueño > 80 && cp < 0.4) this.transitionTo('dormido');
                 if (this.state.presionSueño < 30) this.transitionTo('despierto');
                 break;
             case 'dormido':
                 if (this.state.profundidad < 0.2) this.transitionTo('sueño_profundo');
                 if (this.state.profundidad > 0.6) this.transitionTo('sueño_rem');
-                if (this.state.presionSueño < 20 || circadianFactor > wakeThreshold) this.transitionTo('despierto');
+                if (this.state.presionSueño < 20 || cp > wakeThreshold) this.transitionTo('despierto');
                 break;
             case 'sueño_profundo':
                 if (this.state.profundidad > 0.3) this.transitionTo('sueño_rem');
@@ -124,18 +122,21 @@ export class SleepSystem {
                 if (this.state.presionSueño < 10) this.transitionTo('despierto');
                 break;
         }
+
         if (this.state.estado !== 'despierto') {
-            this.state.tiempoDormido += deltaTime;
-            this.state.presionSueño -= deltaTime * 0.015 * this.state.calidadSueño;
-            this.cycleCounter += deltaTime / 5400;
+            this.state.tiempoDormido += dt;
+            this.state.presionSueño -= dt * 0.015 * this.state.calidadSueño;
+            this.cycleCounter += dt / 5400;
             if (this.cycleCounter >= 1) {
                 this.cycleCounter = 0;
                 this.state.ciclosCompletos++;
             }
         }
+
         this.state.profundidad = this.calculateSleepDepth(input);
+
         if (this.state.estado === 'sueño_rem') {
-            this.dreamGenerationTimer += deltaTime;
+            this.dreamGenerationTimer += dt;
             if (this.dreamGenerationTimer > 60) {
                 this.dreamGenerationTimer = 0;
                 this.state.sueñosActivos = true;
@@ -147,126 +148,95 @@ export class SleepSystem {
     }
 
     calculateSleepDepth(input) {
-        const bioState = input.biochemical || {};
-        const emoState = input.emotional || {};
-        let depth = 0.5;
-        depth += ((bioState.gaba || 50) / 100) * 0.2;
-        depth += ((bioState.serotonina || 50) / 100) * 0.15;
-        depth += (100 - (bioState.cortisol || 0)) / 100 * 0.2;
-        depth += (100 - (emoState.ansiedad || 0)) / 100 * 0.15;
-        depth -= ((bioState.noradrenalina || 0) / 100) * 0.1;
-        depth -= ((bioState.adrenalina || 0) / 100) * 0.1;
-        if (this.state.estado === 'sueño_profundo') depth += 0.2;
-        if (this.state.estado === 'sueño_rem') depth -= 0.1;
-        return this.clamp(depth, 0, 1);
+        const bio = input.biochemical || {};
+        const emo = input.emotional || {};
+        let d = 0.5;
+        d += ((bio.gaba || 50) / 100) * 0.2;
+        d += ((bio.serotonina || 50) / 100) * 0.15;
+        d += (100 - (bio.cortisol || 0)) / 100 * 0.2;
+        d += (100 - (emo.ansiedad || 0)) / 100 * 0.15;
+        d -= ((bio.noradrenalina || 0) / 100) * 0.1;
+        if (this.state.estado === 'sueño_profundo') d += 0.2;
+        if (this.state.estado === 'sueño_rem') d -= 0.1;
+        return this.clamp(d, 0, 1);
     }
 
-    transitionTo(newState) {
-        const oldState = this.state.estado;
-        this.state.estado = newState;
-        if (newState === 'despierto' && oldState !== 'despierto') {
+    transitionTo(ns) {
+        const old = this.state.estado;
+        this.state.estado = ns;
+        if (ns === 'despierto' && old !== 'despierto') {
             this.state.sueñosActivos = false;
             this.state.paralisisSueño = false;
             this.state.calidadSueño = this.calculateSleepQuality();
             this.state.eficienciaSueño = this.calculateSleepEfficiency();
             this.state.despertares++;
             this.state.ultimoDespertar = systemCore.systemTime || Date.now();
-            this.emitEvent('woke_up', { quality: this.state.calidadSueño, efficiency: this.state.eficienciaSueño, time: this.state.tiempoDormido });
+            this.emitEvent('woke_up', { quality: this.state.calidadSueño });
         }
-        if (newState === 'sueño_rem') {
-            this.state.sueñosActivos = true;
-            this.emitEvent('rem_sleep_started', {});
-        }
-        if (newState === 'sueño_profundo') {
-            this.state.sueñosActivos = false;
-            this.emitEvent('deep_sleep_started', {});
-        }
-        if (newState === 'dormido') {
-            this.emitEvent('fell_asleep', { pressure: this.state.presionSueño });
-        }
-        this.emitEvent('state_changed', { from: oldState, to: newState });
+        if (ns === 'sueño_rem') { this.state.sueñosActivos = true; this.emitEvent('rem_started', {}); }
+        if (ns === 'sueño_profundo') { this.state.sueñosActivos = false; this.emitEvent('deep_started', {}); }
+        if (ns === 'dormido') this.emitEvent('fell_asleep', { pressure: this.state.presionSueño });
+        this.emitEvent('state_changed', { from: old, to: ns });
     }
 
     calculateSleepQuality() {
-        let quality = 0.7;
-        quality += (1 - this.state.deudaSueño / 100) * 0.2;
-        quality += this.state.ciclosCompletos / 10 * 0.1;
-        quality += (this.state.tiempoDormido > 28800) ? 0.1 : 0;
-        quality -= (this.state.presionSueño > 50) ? 0.1 : 0;
-        quality -= this.state.ciclosCompletos < 3 ? 0.1 : 0;
-        quality -= this.state.despertares * 0.02;
-        return this.clamp(quality, 0, 1);
+        let q = 0.7;
+        q += (1 - this.state.deudaSueño / 100) * 0.2;
+        q += this.state.ciclosCompletos / 10 * 0.1;
+        q += this.state.tiempoDormido > 28800 ? 0.1 : 0;
+        q -= this.state.despertares * 0.02;
+        return this.clamp(q, 0, 1);
     }
 
     calculateSleepEfficiency() {
-        const totalTime = this.state.tiempoDormido || 1;
-        const deepTime = this.state.profundidad * totalTime;
-        return deepTime / totalTime;
+        const t = this.state.tiempoDormido || 1;
+        return (this.state.profundidad * t) / t;
     }
 
-    applySleepEffects(input, deltaTime) {
-        const bioState = input.biochemical || {};
-        const emoState = input.emotional || {};
-        if (this.state.estado !== 'despierto') {
-            this.applySleepingEffects(bioState, deltaTime);
-        } else {
-            this.applyWakeEffects(bioState, deltaTime);
-        }
-    }
-
-    applySleepingEffects(bioState, deltaTime) {
+    applySleepEffects(input, dt) {
         if (this.state.estado === 'sueño_profundo') {
-            const recoveryRate = 0.04 * this.state.calidadSueño * deltaTime;
-            const modulation = {
-                energia: recoveryRate * 20,
-                cortisol: -recoveryRate * 15,
-                oxigeno: recoveryRate * 5,
-                recuperacion: recoveryRate * 25,
-                fatigaAcumulada: -recoveryRate * 10
-            };
-            systemCore.modules.get('biochemical')?.applyModulation(modulation);
+            const rec = 0.04 * this.state.calidadSueño * dt;
+            const bio = systemCore.modules.get('biochemical');
+            if (bio?.applyModulation) {
+                bio.applyModulation({ energia: rec * 20, cortisol: -rec * 15, oxigeno: rec * 5, recuperacion: rec * 25 });
+            }
         }
         if (this.state.estado === 'sueño_rem') {
-            const recoveryRate = 0.025 * this.state.calidadSueño * deltaTime;
-            const modulation = {
-                serotonina: recoveryRate * 15,
-                dopamina: recoveryRate * 10,
-                oxitocina: recoveryRate * 10,
-                cortisol: -recoveryRate * 5
-            };
-            systemCore.modules.get('biochemical')?.applyModulation(modulation);
+            const rec = 0.025 * this.state.calidadSueño * dt;
+            const bio = systemCore.modules.get('biochemical');
+            if (bio?.applyModulation) {
+                bio.applyModulation({ serotonina: rec * 15, dopamina: rec * 10, oxitocina: rec * 10 });
+            }
         }
     }
 
-    applyWakeEffects(bioState, deltaTime) {
-        const quality = this.state.calidadSueño;
-        if ((bioState.energia || 50) < 30) {
-            const recoveryRate = 0.008 * quality * deltaTime;
-            systemCore.modules.get('biochemical')?.applyModulation({
-                energia: recoveryRate * 10,
-                cortisol: -recoveryRate * 5
-            });
-        }
-    }
-
-    processDreams(deltaTime) {
+    processDreams(dt) {
         if (!this.state.sueñosActivos) return;
-        if (Math.random() < 0.008 * deltaTime) {
+        if (Math.random() < 0.008 * dt) {
             const dream = this.generateDream();
             this.dreamLog.push({ ...dream, timestamp: systemCore.systemTime || Date.now() });
             if (this.dreamLog.length > 50) this.dreamLog.shift();
             this.emitEvent('dream_occurred', dream);
+
+            // Persistir sueños
+            if (systemCore.database?.isInitialized) {
+                systemCore.database.db.run(
+                    `INSERT INTO sueno_sueños (timestamp, contenido, tipo, emocion, tema, intensidad, vividness, duracion)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [Date.now(), dream.tema || '', dream.tipo, dream.emocion, dream.tema, dream.intensidad, dream.vividness, dream.duracion]
+                ).catch(() => {});
+            }
         }
     }
 
     generateDream() {
-        const dreamTypes = ['recuerdo', 'imaginativo', 'emocional', 'abstracto', 'narrativo'];
-        const emotions = ['alegría', 'tristeza', 'miedo', 'confianza', 'sorpresa', 'amor', 'culpa'];
-        const themes = ['exploración', 'encuentro', 'peligro', 'descubrimiento', 'recuerdo', 'vuelo', 'caída'];
+        const tipos = ['recuerdo', 'imaginativo', 'emocional', 'abstracto', 'narrativo'];
+        const emociones = ['alegría', 'tristeza', 'miedo', 'confianza', 'sorpresa', 'amor'];
+        const temas = ['exploración', 'encuentro', 'peligro', 'descubrimiento', 'vuelo', 'caída'];
         return {
-            tipo: dreamTypes[Math.floor(Math.random() * dreamTypes.length)],
-            emocion: emotions[Math.floor(Math.random() * emotions.length)],
-            tema: themes[Math.floor(Math.random() * themes.length)],
+            tipo: tipos[Math.floor(Math.random() * tipos.length)],
+            emocion: emociones[Math.floor(Math.random() * emociones.length)],
+            tema: temas[Math.floor(Math.random() * temas.length)],
             intensidad: 0.3 + Math.random() * 0.7,
             vividness: 0.3 + Math.random() * 0.7,
             duracion: 10 + Math.random() * 50
@@ -274,37 +244,40 @@ export class SleepSystem {
     }
 
     recordHistory() {
-        this.sleepHistory.push({ timestamp: this.lastUpdateTime, estado: this.state.estado, presionSueño: this.state.presionSueño, profundidad: this.state.profundidad, calidadSueño: this.state.calidadSueño });
+        this.sleepHistory.push({
+            timestamp: this.lastUpdateTime,
+            estado: this.state.estado,
+            presionSueño: this.state.presionSueño,
+            profundidad: this.state.profundidad,
+            calidadSueño: this.state.calidadSueño
+        });
         if (this.sleepHistory.length > 1000) this.sleepHistory.shift();
     }
 
-    getState() {
-        return { ...this.state };
+    handleSituation(type, intensity) {
+        const map = {
+            'reposo': { presionSueño: 20 * intensity, calidadSueño: 0.1 * intensity },
+            'estres_alto': { presionSueño: -10 * intensity, calidadSueño: -0.1 * intensity },
+            'descanso': { presionSueño: 30 * intensity },
+            'fatiga': { presionSueño: 40 * intensity }
+        };
+        const eff = map[type] || {};
+        Object.keys(eff).forEach(k => {
+            if (this.state[k] !== undefined) {
+                this.state[k] = k === 'calidadSueño' ? this.clamp(this.state[k] + eff[k], 0, 1) : this.clamp(this.state[k] + eff[k], 0, 100);
+            }
+        });
     }
 
-    getSleepHistory() {
-        return this.sleepHistory.slice(-100);
-    }
-
-    getDreamLog() {
-        return this.dreamLog.slice(-20);
-    }
-
-    getCircadianPhase() {
-        return this.circadianPhase;
-    }
-
-    clamp(value, min, max) {
-        return Math.max(min, Math.min(max, value));
-    }
+    getState() { return { ...this.state }; }
+    getSleepHistory() { return this.sleepHistory.slice(-100); }
+    getDreamLog() { return this.dreamLog.slice(-20); }
+    clamp(v, mn, mx) { return Math.max(mn, Math.min(mx, v)); }
 
     reset() {
         this.initializeState();
         this.sleepHistory = [];
         this.dreamLog = [];
-        this.dreamGenerationTimer = 0;
-        this.sleepDepth = 0;
-        this.cycleCounter = 0;
     }
 
     exportData() {
@@ -312,8 +285,7 @@ export class SleepSystem {
             state: this.getState(),
             sleepHistory: this.getSleepHistory(),
             dreamLog: this.getDreamLog(),
-            circadianPhase: this.circadianPhase,
-            circadianRhythm: this.circadianRhythm
+            circadianPhase: this.circadianPhase
         };
     }
 }
