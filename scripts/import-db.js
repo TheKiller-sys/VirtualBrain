@@ -10,34 +10,40 @@ const __dirname = path.dirname(__filename);
 async function importDatabase() {
     console.log('📥 Importando base de datos...');
     console.log('=' .repeat(50));
-    
+
     const filepath = process.argv[2];
     if (!filepath) {
-        console.error('❌ Especificar archivo a importar: node scripts/import-db.js archivo.json');
+        console.error('❌ Uso: node scripts/import-db.js archivo.json');
         process.exit(1);
     }
-    
-    if (!fs.existsSync(filepath)) {
-        console.error(`❌ Archivo no encontrado: ${filepath}`);
+
+    const resolved = path.isAbsolute(filepath) ? filepath : path.resolve(process.cwd(), filepath);
+    if (!fs.existsSync(resolved)) {
+        console.error(`❌ Archivo no encontrado: ${resolved}`);
         process.exit(1);
     }
-    
+
     const db = new DatabaseManager();
     await db.initialize();
-    
-    console.log(`📂 Leyendo archivo: ${filepath}`);
-    const data = JSON.parse(fs.readFileSync(filepath, 'utf8'));
-    
-    console.log(`📋 Importando ${Object.keys(data.tables).length} tablas...`);
+
+    console.log(`📂 Leyendo archivo: ${resolved}`);
+    const data = JSON.parse(fs.readFileSync(resolved, 'utf8'));
+
+    const tableCount = Object.keys(data.tables || {}).length;
+    console.log(`📋 Importando ${tableCount} tablas...`);
+
     await db.importFromJSON(data);
-    
+
     const metrics = await db.getMetrics();
     console.log(`\n📊 Métricas después de importación:`);
     console.log(`   - Tablas: ${metrics.tableCount}`);
     console.log(`   - Tamaño: ${(metrics.databaseSize / (1024 * 1024)).toFixed(2)} MB`);
-    
+
     await db.close();
     console.log('\n✅ Importación completada');
 }
 
-importDatabase().catch(console.error);
+importDatabase().catch(err => {
+    console.error('❌ Error:', err);
+    process.exit(1);
+});
