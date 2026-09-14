@@ -14,7 +14,7 @@
     "db:optimize": "node scripts/optimize-db.js",
     "db:export": "node scripts/export-db.js",
     "db:import": "node scripts/import-db.js",
-    "test": "node --test tests/"
+    "db:monitor": "node scripts/monitor-db.js"
   },
   "dependencies": {
     "express": "^4.18.2",
