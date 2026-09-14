@@ -43,7 +43,6 @@ export class SystemCore {
             activeAlerts: []
         };
 
-        // El orden importa: los módulos base se inicializan primero
         this.initOrder = [
             'environment',
             'personality',
@@ -57,6 +56,11 @@ export class SystemCore {
             'visual',
             'control'
         ];
+
+        // Cache para getState()
+        this._stateCache = null;
+        this._stateCacheAt = 0;
+        this._stateCacheTTL = 500; // ms
 
         this.initializeCore();
     }
@@ -93,6 +97,9 @@ export class SystemCore {
     // ==================== REGISTRO DE MÓDULOS ====================
 
     registerModule(name, module) {
+        if (this.modules.has(name)) {
+            this.logSystem(`⚠️ Módulo duplicado, sobreescribiendo: ${name}`, 'warning');
+        }
         this.modules.set(name, module);
         this.logSystem(`Módulo registrado: ${name}`);
         return module;
@@ -101,6 +108,18 @@ export class SystemCore {
     setDatabase(database) {
         this.database = database;
         this.logSystem('Base de datos vinculada al núcleo');
+    }
+
+    // ==================== UTILIDADES DE TIEMPO ====================
+
+    /**
+     * Hora circadiana real (0–24). Independiente del tiempo interno de simulación.
+     * Usada por los módulos que necesitan ritmo día/noche real.
+     */
+    getCircadianHour() {
+        const now = Date.now();
+        const dayMs = now % 86400000;
+        return dayMs / 3600000;
     }
 
     // ==================== EVENTOS ====================
@@ -207,6 +226,9 @@ export class SystemCore {
 
         this.systemTime += deltaTime;
         this.cycleCount++;
+
+        // Invalidar cache de estado
+        this._stateCache = null;
 
         try {
             const input = this.collectSystemInput();
@@ -467,7 +489,6 @@ export class SystemCore {
         const bio = results.biochemical || {};
         const thresholds = this.alerts.thresholds;
 
-        // ✅ Cortisol: valores ALTOS son malos → usar ">"
         const criticalChecks = [
             { value: bio.oxigeno ?? 100, threshold: thresholds.critical.oxygen, m: 'Oxígeno crítico', invert: false },
             { value: bio.energia ?? 100, threshold: thresholds.critical.energy, m: 'Energía crítica', invert: false },
@@ -492,7 +513,6 @@ export class SystemCore {
             if (triggered) this.addAlert('warning', c.m, { value: c.value, threshold: c.threshold });
         });
 
-        // Limpiar alertas que ya no aplican
         this.alerts.activeAlerts = this.alerts.activeAlerts.filter(alert => {
             const all = criticalChecks.concat(warningChecks);
             const check = all.find(c => c.m === alert.message);
@@ -536,7 +556,16 @@ export class SystemCore {
             }
         });
 
-        setTimeout(() => this.resolveEmergency(), 5000);
+        // Límite de reintentos para no quedar atrapado en emergencia infinita
+        if (!this._emergencyRetries) this._emergencyRetries = 0;
+        this._emergencyRetries++;
+
+        if (this._emergencyRetries <= 12) { // hasta ~60 segundos
+            setTimeout(() => this.resolveEmergency(), 5000);
+        } else {
+            this.logSystem('⚠️ Emergencia persiste tras múltiples reintentos. Requiere intervención manual.', 'error');
+            this.dispatchEvent('emergency_stuck', { time: this.systemTime });
+        }
     }
 
     resolveEmergency() {
@@ -547,6 +576,7 @@ export class SystemCore {
         const ok = bio.oxigeno > 20 && bio.toxicidad < 80 && bio.energia > 15 && bio.cortisol < 80;
         if (ok) {
             this.systemState.emergency = false;
+            this._emergencyRetries = 0;
             this.logSystem('✅ Emergencia resuelta', 'system');
             this.dispatchEvent('emergency_resolved', { time: this.systemTime });
         } else {
@@ -573,7 +603,6 @@ export class SystemCore {
         this.characterConfig = { ...this.characterConfig, ...config };
         this.logSystem(`Personaje cambiado a: ${this.characterConfig.genotipo}`);
 
-        // Re-inicializar módulos con la nueva config
         for (const [name, module] of this.modules) {
             if (module && typeof module.initialize === 'function') {
                 try { module.initialize(this.characterConfig); }
@@ -609,7 +638,6 @@ export class SystemCore {
         };
     }
 
-    // Alias para la ruta /api/export
     exportData() {
         return this.exportSystemData();
     }
@@ -621,7 +649,9 @@ export class SystemCore {
         this.cycleHistory = [];
         this.eventHistory = [];
         this.systemState.emergency = false;
+        this._emergencyRetries = 0;
         this.alerts.activeAlerts = [];
+        this._stateCache = null;
         this.statistics = {
             stabilityHistory: [],
             performanceHistory: [],
@@ -660,7 +690,6 @@ export class SystemCore {
                        type === 'warning' ? '⚠️' :
                        type === 'debug' ? '🔍' : '📌';
 
-        // Solo imprimimos warnings/errors o mensajes explícitos
         if (type === 'error' || type === 'warning' || process.env.VERBOSE_LOGS === 'true') {
             console.log(`${prefix} [${timestamp}] ${message}`);
         }
@@ -687,9 +716,15 @@ export class SystemCore {
 
     getEvents() { return this.eventHistory.slice(-100); }
 
-    // ==================== API ====================
+    // ==================== API (con cache) ====================
 
     async getState() {
+        // Cache de 500ms para evitar recalcular 11 veces por request HTTP
+        const now = Date.now();
+        if (this._stateCache && (now - this._stateCacheAt) < this._stateCacheTTL) {
+            return this._stateCache;
+        }
+
         const modulesState = {};
         for (const [name, module] of this.modules) {
             if (module && typeof module.getState === 'function') {
@@ -698,7 +733,7 @@ export class SystemCore {
             }
         }
 
-        return {
+        const result = {
             system: {
                 stability: this.systemState.stability || 0,
                 performance: this.systemState.performance || 0,
@@ -708,8 +743,12 @@ export class SystemCore {
                 cycles: this.cycleCount || 0
             },
             modules: modulesState,
-            timestamp: Date.now()
+            timestamp: now
         };
+
+        this._stateCache = result;
+        this._stateCacheAt = now;
+        return result;
     }
 
     async getMetrics() {
