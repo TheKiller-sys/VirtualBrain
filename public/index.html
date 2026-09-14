@@ -138,13 +138,18 @@
     }
     .region-label {
         font-size: 10px;
-        fill: #9db4e6;
+        fill: #eaf2ff;
         pointer-events: none;
         text-anchor: middle;
-        letter-spacing: 1.4px;
+        letter-spacing: 1.2px;
         text-transform: uppercase;
         font-weight: 500;
+        paint-order: stroke;
+        stroke: rgba(5,8,20,0.85);
+        stroke-width: 3px;
+        stroke-linejoin: round;
     }
+    .region-label.dim { fill: #b8c6e6; font-size: 9px; }
     .fissure {
         stroke: rgba(140,180,255,0.25);
         stroke-width: 1.2;
@@ -420,37 +425,56 @@
                     </radialGradient>
                 </defs>
 
+                <!-- OUTLINE + FISSURE (fondo) -->
                 <path class="brain-outline" d="M200,55 C120,55 55,110 55,185 C55,250 90,310 145,340 C175,357 185,368 200,375 C215,368 225,357 255,340 C310,310 345,250 345,185 C345,110 280,55 200,55 Z"/>
                 <path class="fissure" d="M200,60 L200,360"/>
 
+                <!--
+                    FIX: orden de las formas.
+                    El lóbulo límbico (elipse) se dibuja ANTES que temporal para
+                    que quede por debajo en las zonas de solapamiento, y el
+                    label "Temporal · Memoria" se posiciona en el lóbulo
+                    izquierdo (no en el centro) para no pisar al límbico.
+                -->
+
+                <!-- LÍMBICO: elipse (capa inferior) -->
+                <ellipse id="region-limbic" class="region" data-region="limbic"
+                         cx="200" cy="270" rx="42" ry="34"/>
+
+                <!-- FRONTAL -->
                 <path id="region-frontal" class="region" data-region="frontal"
                       d="M200,60 C160,60 120,80 105,110 C95,130 95,160 110,180 L200,180 L290,180 C305,160 305,130 295,110 C280,80 240,60 200,60 Z"/>
-                <text class="region-label" x="200" y="130">Frontal · Decisión</text>
 
+                <!-- PARIETAL -->
                 <path id="region-parietal" class="region" data-region="parietal"
                       d="M110,185 L200,185 L290,185 C300,200 300,225 290,240 L200,240 L110,240 C100,225 100,200 110,185 Z"/>
-                <text class="region-label" x="200" y="220">Parietal · Atención</text>
 
+                <!-- TEMPORAL: dos lóbulos -->
                 <path id="region-temporal" class="region" data-region="temporal"
                       d="M105,245 C90,255 78,275 78,300 C78,325 95,345 120,352 C140,357 165,350 180,335 L180,250 Z
                          M295,245 C310,255 322,275 322,300 C322,325 305,345 280,352 C260,357 235,350 220,335 L220,250 Z"/>
-                <text class="region-label" x="200" y="300">Temporal · Memoria</text>
 
-                <ellipse id="region-limbic" class="region" data-region="limbic"
-                         cx="200" cy="270" rx="42" ry="34"/>
-                <text class="region-label" x="200" y="274">Límbico · Emoción</text>
-
+                <!-- OCCIPITAL -->
                 <path id="region-occipital" class="region" data-region="occipital"
                       d="M140,345 C155,355 180,360 200,360 C220,360 245,355 260,345 C270,352 270,362 255,368 C235,375 215,375 200,375 C185,375 165,375 145,368 C130,362 130,352 140,345 Z"/>
-                <text class="region-label" x="200" y="362">Occipital · Visual</text>
 
-                <path id="region-brainstem" class="region" data-region="brainstem"
-                      d="M188,375 C185,388 188,400 200,405 C212,400 215,388 212,375 Z"/>
-                <text class="region-label" x="200" y="395" font-size="8">Tallo</text>
-
+                <!-- CEREBELO -->
                 <path id="region-cerebellum" class="region" data-region="cerebellum"
                       d="M150,368 C160,380 180,388 200,388 C220,388 240,380 250,368 C255,380 245,394 200,398 C155,394 145,380 150,368 Z"
                       opacity="0.85"/>
+
+                <!-- TALLO -->
+                <path id="region-brainstem" class="region" data-region="brainstem"
+                      d="M188,375 C185,388 188,400 200,405 C212,400 215,388 212,375 Z"/>
+
+                <!-- LABELS (capa superior, sin solapamiento) -->
+                <text class="region-label" x="200" y="130">Frontal · Decisión</text>
+                <text class="region-label" x="200" y="218">Parietal · Atención</text>
+                <text class="region-label" x="200" y="272">Límbico · Emoción</text>
+                <text class="region-label dim" x="120" y="320">Temporal · Memoria</text>
+                <text class="region-label dim" x="280" y="320">Temporal</text>
+                <text class="region-label dim" x="200" y="364">Occipital · Visual</text>
+                <text class="region-label dim" x="200" y="398" font-size="8">Tallo</text>
             </svg>
         </div>
         <div class="legend">
@@ -583,7 +607,6 @@ function updateBrain(regions) {
 
 /* ---------- Feed ---------- */
 function addFeed({ icon, title, meta, tone, key }) {
-    // Evitar duplicados si viene con key
     if (key) {
         if (feedSeenKeys.has(key)) return;
         feedSeenKeys.add(key);
@@ -712,7 +735,6 @@ function applyState(data) {
     emos.forEach(e => { if ((emo[e] || 0) > domV) { domV = emo[e]; dom = e; } });
     $('#emotion-tag').textContent = `${dom} ${Math.round(domV)}%`;
 
-    // Regiones: vienen del backend (fuente única de verdad)
     if (data.regions) updateBrain(data.regions);
 }
 
