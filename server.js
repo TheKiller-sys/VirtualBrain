@@ -27,18 +27,113 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || null;
 
-// ============ MIDDLEWARE ============
-app.use(helmet({ contentSecurityPolicy: false }));
+// ============ SEGURIDAD ============
+app.use(helmet({
+    contentSecurityPolicy: false, // El frontend usa inline script, se puede migrar luego
+    crossOriginEmbedderPolicy: false
+}));
 app.use(compression());
-app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
-app.use(express.json({ limit: '10mb' }));
+
+const allowedOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
+    : null;
+
+app.use(cors({
+    origin: allowedOrigins
+        ? (origin, cb) => {
+            if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+            return cb(new Error('CORS bloqueado'));
+        }
+        : true,
+    credentials: true
+}));
+
+app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ============ RATE LIMITER (in-memory) ============
+function rateLimit({ windowMs = 60000, max = 120 } = {}) {
+    const hits = new Map();
+    // Limpieza periódica para no crecer sin límite
+    setInterval(() => {
+        const now = Date.now();
+        for (const [k, v] of hits) if (v.resetAt < now) hits.delete(k);
+    }, windowMs).unref?.();
+
+    return (req, res, next) => {
+        const key = req.ip || req.socket?.remoteAddress || 'unknown';
+        const now = Date.now();
+        const entry = hits.get(key) || { count: 0, resetAt: now + windowMs };
+        if (now > entry.resetAt) {
+            entry.count = 0;
+            entry.resetAt = now + windowMs;
+        }
+        entry.count++;
+        hits.set(key, entry);
+        res.set('X-RateLimit-Limit', String(max));
+        res.set('X-RateLimit-Remaining', String(Math.max(0, max - entry.count)));
+        if (entry.count > max) {
+            res.set('Retry-After', Math.ceil((entry.resetAt - now) / 1000));
+            return res.status(429).json({ success: false, error: 'Demasiadas peticiones' });
+        }
+        next();
+    };
+}
+
+// ============ AUTORIZACIÓN ADMIN ============
+function requireAdmin(req, res, next) {
+    if (!ADMIN_TOKEN) return next(); // Sin token configurado → modo dev
+    const token = req.headers['x-admin-token'] || req.query.token;
+    if (token !== ADMIN_TOKEN) {
+        return res.status(401).json({ success: false, error: 'No autorizado' });
+    }
+    next();
+}
+
+// Rate limit global suave
+app.use('/api/', rateLimit({ windowMs: 60_000, max: 240 }));
+// Rate limit estricto para chat (más costoso)
+const chatLimiter = rateLimit({ windowMs: 60_000, max: 30 });
 
 // ============ RUTA PRINCIPAL ============
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
+
+// ============ CÁLCULO DE REGIONES CEREBRALES (única fuente de verdad) ============
+function computeActivatedRegions(state, analysisType) {
+    const modules = state.modules || {};
+    const map = { frontal: 0, parietal: 0, temporal: 0, occipital: 0, limbic: 0, brainstem: 0, cerebellum: 0 };
+
+    const cog = modules.cognitive || {};
+    map.frontal = clamp01(((cog.razonamiento || 0) + (cog.tomaDecisiones || 0) + (cog.planificacion || 0)) / 300);
+    map.parietal = clamp01(((cog.atencion || 0) + (cog.concentracion || 0)) / 200);
+
+    const mem = modules.memory || {};
+    const emo = modules.emotional || {};
+    map.temporal = clamp01(((mem.episodica || 0) / 2000 + (mem.memoriaSemantica || 0) / 200) / 2);
+    map.limbic = clamp01(((emo.alegria || 0) + (emo.miedo || 0) + (emo.ira || 0) + (emo.confianza || 0)) / 400);
+
+    const vis = modules.visual || {};
+    map.occipital = clamp01(vis.intensidadVisual || 0.5);
+
+    const bio = modules.biochemical || {};
+    map.brainstem = clamp01(((bio.energia || 0) + (bio.oxigeno || 0)) / 200);
+
+    const motor = modules.motor || {};
+    map.cerebellum = clamp01(((motor.coordinacion || 0) + (motor.precision || 0)) / 200);
+
+    if (analysisType === 'peligro' || analysisType === 'miedo') map.limbic = Math.min(1, map.limbic + 0.3);
+    if (analysisType === 'alegria') map.limbic = Math.min(1, map.limbic + 0.2);
+    if (analysisType === 'decision' || analysisType === 'filosofia') map.frontal = Math.min(1, map.frontal + 0.35);
+    if (analysisType === 'social') map.temporal = Math.min(1, map.temporal + 0.25);
+
+    return map;
+}
+
+function clamp01(v) { return Math.max(0, Math.min(1, v || 0)); }
 
 // ============ API DEL CEREBRO ============
 
@@ -46,7 +141,8 @@ app.get('/api/state', async (req, res) => {
     try {
         const state = await systemCore.getState();
         const metrics = await systemCore.getMetrics();
-        res.json({ success: true, state, metrics, timestamp: Date.now() });
+        const regions = computeActivatedRegions(state);
+        res.json({ success: true, state, metrics, regions, timestamp: Date.now() });
     } catch (error) {
         console.error('❌ /api/state:', error.message);
         res.status(500).json({ success: false, error: error.message });
@@ -127,10 +223,12 @@ app.post('/api/situation', async (req, res) => {
 
 // ============ CHAT ============
 
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', chatLimiter, async (req, res) => {
     try {
         const { message, context } = req.body;
-        if (!message) return res.status(400).json({ success: false, error: 'Se requiere un mensaje' });
+        if (!message || typeof message !== 'string' || message.length > 2000) {
+            return res.status(400).json({ success: false, error: 'Mensaje inválido (máx 2000 caracteres)' });
+        }
 
         const state = await systemCore.getState();
         const emotional = state.modules?.emotional || {};
@@ -170,7 +268,6 @@ app.post('/api/chat', async (req, res) => {
             activated_regions: computeActivatedRegions(state, analysis.type)
         };
 
-        // Persistir interacción
         if (systemCore.database?.isInitialized) {
             try {
                 await systemCore.database.saveMemory({
@@ -202,7 +299,7 @@ app.post('/api/chat', async (req, res) => {
 
 app.get('/api/emotions/history', async (req, res) => {
     try {
-        const limit = parseInt(req.query.limit) || 100;
+        const limit = Math.min(parseInt(req.query.limit) || 100, 1000);
         const history = await systemCore.database.getEmotionalHistory(limit);
         res.json({ success: true, history, count: history.length });
     } catch (error) {
@@ -212,7 +309,7 @@ app.get('/api/emotions/history', async (req, res) => {
 
 app.get('/api/decisions/history', async (req, res) => {
     try {
-        const limit = parseInt(req.query.limit) || 50;
+        const limit = Math.min(parseInt(req.query.limit) || 50, 500);
         const history = await systemCore.database.getDecisionHistory(limit);
         res.json({ success: true, history, count: history.length });
     } catch (error) {
@@ -222,7 +319,7 @@ app.get('/api/decisions/history', async (req, res) => {
 
 app.get('/api/thoughts/history', async (req, res) => {
     try {
-        const limit = parseInt(req.query.limit) || 50;
+        const limit = Math.min(parseInt(req.query.limit) || 50, 500);
         const history = await systemCore.database.getThoughtHistory(limit);
         res.json({ success: true, history, count: history.length });
     } catch (error) {
@@ -232,7 +329,7 @@ app.get('/api/thoughts/history', async (req, res) => {
 
 app.get('/api/memories/important', async (req, res) => {
     try {
-        const limit = parseInt(req.query.limit) || 20;
+        const limit = Math.min(parseInt(req.query.limit) || 20, 200);
         const memories = await systemCore.database.getStrongestMemories(limit);
         res.json({ success: true, memories, count: memories.length });
     } catch (error) {
@@ -260,11 +357,11 @@ app.get('/api/personality/evolution', async (req, res) => {
     }
 });
 
-// ============ APRENDIZAJE (NUEVO) ============
+// ============ APRENDIZAJE ============
 
 app.get('/api/learning/feed', async (req, res) => {
     try {
-        const limit = parseInt(req.query.limit) || 30;
+        const limit = Math.min(parseInt(req.query.limit) || 30, 200);
         const feed = await systemCore.database.getLearningFeed(limit);
         res.json({ success: true, feed, count: feed.length });
     } catch (error) {
@@ -332,9 +429,9 @@ app.get('/api/analysis/stats', async (req, res) => {
     }
 });
 
-// ============ EXPORT / RESET ============
+// ============ EXPORT / RESET (ADMIN) ============
 
-app.get('/api/export', async (req, res) => {
+app.get('/api/export', requireAdmin, async (req, res) => {
     try {
         const data = systemCore.exportSystemData();
         res.json({ success: true, data });
@@ -343,9 +440,9 @@ app.get('/api/export', async (req, res) => {
     }
 });
 
-app.get('/api/export/db', async (req, res) => {
+app.get('/api/export/db', requireAdmin, async (req, res) => {
     try {
-        const limit = parseInt(req.query.limit) || 1000;
+        const limit = Math.min(parseInt(req.query.limit) || 1000, 10000);
         const data = await systemCore.database.exportToJSON(limit);
         res.json({ success: true, data });
     } catch (error) {
@@ -353,7 +450,7 @@ app.get('/api/export/db', async (req, res) => {
     }
 });
 
-app.post('/api/reset', async (req, res) => {
+app.post('/api/reset', requireAdmin, async (req, res) => {
     try {
         systemCore.reset();
         res.json({ success: true, message: 'Cerebro reiniciado correctamente' });
@@ -362,7 +459,7 @@ app.post('/api/reset', async (req, res) => {
     }
 });
 
-// ============ HEALTH REPORT ============
+// ============ REPORTES ============
 
 app.get('/api/health/report', async (req, res) => {
     try {
@@ -618,64 +715,14 @@ function generateAuthenticResponse(decision, analysis, emotionalResponse, state,
     return response;
 }
 
-/**
- * Devuelve un mapa de las regiones cerebrales que se activan según
- * el estado y el tipo de mensaje. Usado por el frontend para iluminar
- * las zonas correspondientes.
- */
-function computeActivatedRegions(state, analysisType) {
-    const modules = state.modules || {};
-    const map = {
-        frontal: 0,
-        parietal: 0,
-        temporal: 0,
-        occipital: 0,
-        limbic: 0,
-        brainstem: 0,
-        cerebellum: 0
-    };
-
-    // Cognitivo -> Frontal + Parietal
-    const cog = modules.cognitive || {};
-    map.frontal = clamp01(((cog.razonamiento || 0) + (cog.tomaDecisiones || 0) + (cog.planificacion || 0)) / 300);
-    map.parietal = clamp01(((cog.atencion || 0) + (cog.concentracion || 0)) / 200);
-
-    // Memoria + Emocional -> Temporal + Límbico
-    const mem = modules.memory || {};
-    const emo = modules.emotional || {};
-    map.temporal = clamp01(((mem.episodica || 0) / 2000 + (mem.memoriaSemantica || 0) / 200) / 2);
-    map.limbic = clamp01(((emo.alegria || 0) + (emo.miedo || 0) + (emo.ira || 0) + (emo.confianza || 0)) / 400);
-
-    // Visual -> Occipital
-    const vis = modules.visual || {};
-    map.occipital = clamp01(vis.intensidadVisual || 0.5);
-
-    // Bioquímico -> Brainstem
-    const bio = modules.biochemical || {};
-    map.brainstem = clamp01(((bio.energia || 0) + (bio.oxigeno || 0)) / 200);
-
-    // Motor -> Cerebelo
-    const motor = modules.motor || {};
-    map.cerebellum = clamp01(((motor.coordinacion || 0) + (motor.precision || 0)) / 200);
-
-    // Refuerzo por tipo de análisis
-    if (analysisType === 'peligro' || analysisType === 'miedo') map.limbic = Math.min(1, map.limbic + 0.3);
-    if (analysisType === 'alegria') map.limbic = Math.min(1, map.limbic + 0.2);
-    if (analysisType === 'decision' || analysisType === 'filosofia') map.frontal = Math.min(1, map.frontal + 0.35);
-    if (analysisType === 'social') map.temporal = Math.min(1, map.temporal + 0.25);
-
-    return map;
-}
-
-function clamp01(v) { return Math.max(0, Math.min(1, v || 0)); }
-
 // ============ INICIALIZACIÓN DEL CEREBRO ============
+
+let brainInterval = null;
 
 async function startBrain() {
     console.log('🧠 Iniciando Cerebro Digital V4...');
 
     try {
-        // 1) Inicializar base de datos
         const database = new DatabaseManager();
         const dbOk = await database.initialize();
         if (dbOk) {
@@ -685,7 +732,6 @@ async function startBrain() {
             console.warn('⚠️ Base de datos no disponible, funcionando solo en memoria');
         }
 
-        // 2) Inicializar el sistema
         const initialized = await systemCore.initializeSystem({
             nombre: 'Cerebro Digital',
             genotipo: 'humano',
@@ -703,11 +749,10 @@ async function startBrain() {
         console.log(`📊 Estabilidad: ${(systemCore.systemState.stability * 100).toFixed(1)}%`);
         console.log(`📦 Módulos activos: ${Array.from(systemCore.modules.keys()).join(', ')}`);
 
-        // 3) Bucle cerebral (30Hz)
         let lastTime = Date.now();
         let errorCount = 0;
 
-        setInterval(() => {
+        brainInterval = setInterval(() => {
             try {
                 const now = Date.now();
                 const deltaTime = Math.min((now - lastTime) / 1000, 0.5);
@@ -725,6 +770,7 @@ async function startBrain() {
                 }
             }
         }, 33);
+        if (brainInterval.unref) brainInterval.unref();
 
         console.log('🔄 Bucle cerebral activo (30Hz)');
     } catch (error) {
@@ -734,38 +780,61 @@ async function startBrain() {
 
 // ============ ARRANQUE ============
 
-app.listen(PORT, async () => {
+const server = app.listen(PORT, async () => {
     console.log(`
 ╔══════════════════════════════════════════════════════════╗
 ║   🧠 CEREBRO DIGITAL V4 — API CORRIENDO                  ║
 ║   📡 http://localhost:${PORT}                              ║
 ║   🌐 http://localhost:${PORT}/                             ║
 ║   🔍 /api/health  💬 POST /api/chat                       ║
+║   ${ADMIN_TOKEN ? '🔒 Rutas admin protegidas por ADMIN_TOKEN' : '⚠️  ADMIN_TOKEN no configurado (modo dev)'}                          ║
 ╚══════════════════════════════════════════════════════════╝
     `);
     await startBrain();
 });
 
-// ============ SEÑALES ============
-
-process.on('SIGINT', async () => {
-    console.log('\n🛑 Cerrando...');
-    if (systemCore.database) await systemCore.database.close();
-    process.exit(0);
+server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+        console.error(`❌ Puerto ${PORT} en uso. Configura PORT o libera el puerto.`);
+    } else {
+        console.error('❌ Error del servidor:', err);
+    }
+    process.exit(1);
 });
 
-process.on('SIGTERM', async () => {
-    console.log('\n🛑 Terminando...');
-    if (systemCore.database) await systemCore.database.close();
-    process.exit(0);
-});
+// ============ SHUTDOWN ORDENADO ============
+
+let shuttingDown = false;
+
+async function shutdown(reason) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`\n🛑 Cerrando (${reason})...`);
+
+    if (brainInterval) clearInterval(brainInterval);
+
+    try {
+        if (systemCore.database) await systemCore.database.close();
+    } catch (err) {
+        console.error('Error cerrando BD:', err.message);
+    }
+
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 3000).unref();
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 process.on('uncaughtException', (error) => {
-    console.error('❌ Error no capturado:', error.message);
+    console.error('❌ Error no capturado:', error);
+    // Uncaught exception deja el proceso en estado indefinido → salir
+    shutdown('uncaughtException').finally(() => process.exit(1));
 });
 
 process.on('unhandledRejection', (reason) => {
     console.error('❌ Promesa rechazada no manejada:', reason);
+    // No salimos, pero registramos con severidad
 });
 
 export default app;
