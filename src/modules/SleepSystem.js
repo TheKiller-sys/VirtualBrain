@@ -9,7 +9,6 @@ export class SleepSystem {
         this.sleepHistory = [];
         this.dreamLog = [];
         this.lastUpdateTime = 0;
-        this.circadianRhythm = { phase: 0, amplitude: 0.3, period: 86400, wakeThreshold: 0.7, sleepThreshold: 0.3 };
         this.dreamGenerationTimer = 0;
         this.cycleCounter = 0;
         this._persistCounter = 0;
@@ -41,7 +40,6 @@ export class SleepSystem {
         this.sleepHistory = [];
         this.dreamLog = [];
         this.lastUpdateTime = systemCore.systemTime || Date.now();
-        this.circadianPhase = 0;
         this.dreamGenerationTimer = 0;
         this.cycleCounter = 0;
     }
@@ -58,7 +56,6 @@ export class SleepSystem {
         this.lastUpdateTime = systemCore.systemTime || Date.now();
         if (!input || !input.biochemical) return this.getState();
 
-        this.updateCircadianRhythm(deltaTime);
         this.calculateSleepPressure(input.biochemical, deltaTime);
         this.processSleepState(input, deltaTime);
         this.applySleepEffects(input, deltaTime);
@@ -80,10 +77,6 @@ export class SleepSystem {
         } catch (_) { /* noop */ }
     }
 
-    updateCircadianRhythm(dt) {
-        this.circadianPhase = (this.circadianPhase + dt / this.circadianRhythm.period) % 1;
-    }
-
     calculateSleepPressure(bio, dt) {
         const wakeTime = this.state.estado === 'despierto' ? dt : 0;
         const activity = (bio.energia || 50) < 50 ? 1.5 : 1.0;
@@ -96,9 +89,10 @@ export class SleepSystem {
 
     processSleepState(input, dt) {
         const bio = input.biochemical || {};
+        // Fase circadiana normalizada: 0-1 (0 = medianoche, 0.5 = mediodía)
+        const cp = systemCore.getCircadianHour() / 24;
         const wakeThreshold = 0.7 - ((bio.cortisol || 0) / 100) * 0.2;
         const sleepThreshold = 0.3 + ((bio.serotonina || 50) / 100) * 0.2;
-        const cp = this.circadianPhase;
 
         switch (this.state.estado) {
             case 'despierto':
@@ -218,7 +212,6 @@ export class SleepSystem {
             if (this.dreamLog.length > 50) this.dreamLog.shift();
             this.emitEvent('dream_occurred', dream);
 
-            // Persistir sueños
             if (systemCore.database?.isInitialized) {
                 systemCore.database.db.run(
                     `INSERT INTO sueno_sueños (timestamp, contenido, tipo, emocion, tema, intensidad, vividness, duracion)
@@ -285,7 +278,7 @@ export class SleepSystem {
             state: this.getState(),
             sleepHistory: this.getSleepHistory(),
             dreamLog: this.getDreamLog(),
-            circadianPhase: this.circadianPhase
+            circadianPhase: systemCore.getCircadianHour() / 24
         };
     }
 }
