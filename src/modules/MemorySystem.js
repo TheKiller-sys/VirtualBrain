@@ -20,6 +20,15 @@ export class MemorySystem {
         this.lastUpdateTime = 0;
         this.memoryProfile = {};
         this.parametros = {};
+
+        // FIX: buffers de persistencia (evita escrituras directas por cada
+        // consolidación, que en sesiones largas genera decenas de INSERT/s)
+        this._pendingMemories = [];
+        this._pendingSkills = [];
+
+        // FIX: throttle del proceso de olvido (recorre toda la memoria)
+        this._lastForgetAt = 0;
+        this._forgetIntervalMs = 5000;
     }
 
     async initialize(characterConfig) {
@@ -103,6 +112,26 @@ export class MemorySystem {
         this.manageInterference(deltaTime);
         this.strengthenAssociations(deltaTime);
         this.applyMemoryHomeostasis(deltaTime);
+
+        // FIX: flush de lotes vía queuePersistence con key dedicado.
+        if (this._pendingMemories.length > 0 || this._pendingSkills.length > 0) {
+            systemCore.queuePersistence('memory-batch', async () => {
+                const db = systemCore.database;
+                if (!db?.isInitialized) {
+                    this._pendingMemories.length = 0;
+                    this._pendingSkills.length = 0;
+                    return;
+                }
+                const memories = this._pendingMemories.splice(0);
+                const skills = this._pendingSkills.splice(0);
+                for (const m of memories) {
+                    try { await db.saveMemory(m); } catch (_) { /* noop */ }
+                }
+                for (const s of skills) {
+                    try { await db.saveSkill(s); } catch (_) { /* noop */ }
+                }
+            });
+        }
 
         return this.getState();
     }
@@ -201,10 +230,6 @@ export class MemorySystem {
         if (this.consolidationQueue.length > 50) this.consolidationQueue = this.consolidationQueue.slice(-30);
     }
 
-    /**
-     * FIX: todos los timestamps persistidos usan Date.now() (ms reales).
-     * systemCore.systemTime solo se usa para lógica interna.
-     */
     consolidateToLongTerm(memory) {
         const now = Date.now();
         const ltm = {
@@ -230,15 +255,18 @@ export class MemorySystem {
             this.memories.episodica = this.memories.episodica.sort((a, b) => b.importancia - a.importancia).slice(0, 1500);
         }
 
-        if (systemCore.database?.isInitialized) {
-            systemCore.database.saveMemory({
-                contenido: typeof memory.contenido === 'string' ? memory.contenido : JSON.stringify(memory.contenido),
-                contexto: JSON.stringify(memory.contexto || {}).substring(0, 500),
-                fuerza: memory.fuerza,
-                importancia: ltm.importancia,
-                emocion_asociada: memory.contexto?.emotional?.dominante || 'neutral',
-                consolidada: true
-            }).catch(() => {});
+        // FIX: encolar en buffer en vez de escribir directo
+        this._pendingMemories.push({
+            contenido: typeof memory.contenido === 'string' ? memory.contenido : JSON.stringify(memory.contenido),
+            contexto: JSON.stringify(memory.contexto || {}).substring(0, 500),
+            fuerza: memory.fuerza,
+            importancia: ltm.importancia,
+            emocion_asociada: memory.contexto?.emotional?.dominante || 'neutral',
+            consolidada: true,
+            timestamp: now
+        });
+        if (this._pendingMemories.length > 300) {
+            this._pendingMemories.splice(0, this._pendingMemories.length - 300);
         }
 
         this.emitEvent('memory_consolidated', { tipo: memory.tipo, fuerza: memory.fuerza, importancia: ltm.importancia });
@@ -272,16 +300,18 @@ export class MemorySystem {
             existing.importancia = Math.max(existing.importancia, memory.importancia);
         }
 
-        if (systemCore.database?.isInitialized) {
-            const skill = this.memories.procedural.get(key);
-            systemCore.database.saveSkill({
-                habilidad: key,
-                nivel: skill.nivel,
-                practicas: skill.practicas,
-                eficiencia: skill.eficiencia,
-                complejidad: 5,
-                importancia: memory.importancia
-            }).catch(() => {});
+        // FIX: encolar en buffer
+        const skill = this.memories.procedural.get(key);
+        this._pendingSkills.push({
+            habilidad: key,
+            nivel: skill.nivel,
+            practicas: skill.practicas,
+            eficiencia: skill.eficiencia,
+            complejidad: 5,
+            importancia: memory.importancia
+        });
+        if (this._pendingSkills.length > 100) {
+            this._pendingSkills.splice(0, this._pendingSkills.length - 100);
         }
     }
 
@@ -363,22 +393,28 @@ export class MemorySystem {
     }
 
     /**
-     * FIX: comparar siempre con Date.now() (ms). Antes se restaba
-     * systemTime (segundos) con timestampConsolidacion (ms) → basura.
+     * FIX: el proceso de olvido recorre toda la memoria episódica con
+     * Math.random() por item. Con 2000+ items y 4Hz era ~8000 iter/s.
+     * Ahora se ejecuta cada _forgetIntervalMs (5s) usando Date.now().
      */
     applyForgettingProcess(dt) {
-        const now = Date.now();
+        // Working memory se procesa cada tick (barato)
         const forgetRate = this.parametros.olvido * (1 - this.memoryProfile.retentionRate / 2);
+        this.memories.working = this.memories.working.filter(m => {
+            m.fuerza *= (1 - forgetRate * dt * 0.5);
+            return m.fuerza > 0.05;
+        });
+
+        // LTM se procesa cada 5s
+        const now = Date.now();
+        if (now - this._lastForgetAt < this._forgetIntervalMs) return;
+        this._lastForgetAt = now;
+
         this.memories.episodica = this.memories.episodica.filter(m => {
             const t = now - (m.timestampConsolidacion || now);
             const survival = Math.exp(-forgetRate * t / 86400000);
             const boost = 1 + (m.importancia || 0) * 0.5;
             return Math.random() < survival * boost;
-        });
-
-        this.memories.working = this.memories.working.filter(m => {
-            m.fuerza *= (1 - forgetRate * dt * 0.5);
-            return m.fuerza > 0.05;
         });
     }
 
@@ -593,6 +629,9 @@ export class MemorySystem {
     reset() {
         this.initializeState();
         this.consolidationQueue = [];
+        this._pendingMemories = [];
+        this._pendingSkills = [];
+        this._lastForgetAt = 0;
     }
 
     exportData() {
