@@ -13,7 +13,6 @@ export class EmotionalSystem {
         this.lastUpdateTime = 0;
         this.activePatterns = [];
         this.emotionalProfile = {};
-        this._persistCounter = 0;
     }
 
     async initialize(characterConfig) {
@@ -53,6 +52,7 @@ export class EmotionalSystem {
     }
 
     setupEmotionalPatterns() {
+        // Duraciones en SEGUNDOS de simulación
         this.emotionalPatterns.set('anxiety_cycle', {
             progression: ['miedo', 'ansiedad', 'miedo', 'fatiga'],
             duration: 300, intensityMultiplier: 1.2
@@ -82,7 +82,7 @@ export class EmotionalSystem {
         };
         this.emotionalMemory = [];
         this.emotionalHistory = [];
-        this.lastUpdateTime = systemCore.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime;
         this.activePatterns = [];
     }
 
@@ -95,7 +95,7 @@ export class EmotionalSystem {
     }
 
     update(input, deltaTime) {
-        this.lastUpdateTime = systemCore.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime;
         if (!input || !input.biochemical) return this.getState();
 
         this.calculateBiochemicalEmotions(input.biochemical, deltaTime);
@@ -108,19 +108,13 @@ export class EmotionalSystem {
         this.applyEmotionalHomeostasis(deltaTime);
         this.recordEmotionalState();
 
-        this._persistCounter += deltaTime;
-        if (this._persistCounter > 10) {
-            this._persistCounter = 0;
-            this.persistToDatabase();
-        }
-        return this.getState();
-    }
+        systemCore.queuePersistence('emotional', () => {
+            if (systemCore.database?.isInitialized) {
+                return systemCore.database.saveEmotionalState(this.state);
+            }
+        });
 
-    async persistToDatabase() {
-        if (!systemCore.database?.isInitialized) return;
-        try {
-            await systemCore.database.saveEmotionalState(this.state);
-        } catch (_) { /* noop */ }
+        return this.getState();
     }
 
     calculateBiochemicalEmotions(bio, dt) {
@@ -197,8 +191,7 @@ export class EmotionalSystem {
     }
 
     /**
-     * Efectos circadianos basados en la hora real del día (0-24).
-     * Antes usaba systemCore.systemTime % period, que no representa el día real.
+     * Efectos circadianos basados en hora real (UTC 0-24).
      */
     applyCircadianEffects(dt) {
         const hour = systemCore.getCircadianHour();
@@ -213,9 +206,13 @@ export class EmotionalSystem {
         this.state.estabilidad += (pe.stability || 0) * dt;
     }
 
+    /**
+     * Los patrones se miden en segundos de simulación. `dt` viene en segundos.
+     * FIX: antes se hacía `dt * 1000` mezclando unidades.
+     */
     processEmotionalPatterns(dt) {
         this.activePatterns = this.activePatterns.filter(p => {
-            p.timeRemaining -= dt * 1000;
+            p.timeRemaining -= dt;
             if (p.timeRemaining <= 0) return false;
             const prog = 1 - (p.timeRemaining / p.totalDuration);
             const step = Math.floor(prog * p.progression.length);
@@ -354,20 +351,29 @@ export class EmotionalSystem {
         this.state.regulacion = this.clamp(this.state.regulacion || 0, 0, 1);
     }
 
+    /**
+     * FIX: antes sumaba `0` para claves ausentes pero dividía por `recent.length`
+     * total, sesgando la media. Ahora promedia solo valores válidos.
+     */
     getRecentEmotionalStates() {
         const recent = this.emotionalMemory.slice(-20);
         if (recent.length === 0) return this.state;
         const avg = {};
         Object.keys(this.state).forEach(k => {
-            if (typeof this.state[k] === 'number') {
-                avg[k] = recent.reduce((s, st) => s + (st[k] || 0), 0) / recent.length;
+            if (typeof this.state[k] !== 'number') return;
+            const validValues = [];
+            for (const st of recent) {
+                if (typeof st[k] === 'number') validValues.push(st[k]);
+            }
+            if (validValues.length > 0) {
+                avg[k] = validValues.reduce((s, v) => s + v, 0) / validValues.length;
             }
         });
         return avg;
     }
 
     recordEmotionalState() {
-        const s = { ...this.state, timestamp: systemCore.systemTime || Date.now() };
+        const s = { ...this.state, timestamp: systemCore.systemTime };
         this.emotionalMemory.push(s);
         this.emotionalHistory.push(s);
         if (this.emotionalMemory.length > 200) this.emotionalMemory.shift();
