@@ -15,7 +15,6 @@ export class MotorSystem {
         this.reflexes = new Map();
         this.motorProfile = {};
         this.energyExpenditure = 0;
-        this._persistCounter = 0;
     }
 
     async initialize(characterConfig) {
@@ -112,7 +111,7 @@ export class MotorSystem {
     }
 
     update(input, deltaTime) {
-        this.lastUpdateTime = systemCore.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime;
         if (!input || !input.biochemical) return this.getState();
 
         this.processReflexes(input, deltaTime);
@@ -124,19 +123,13 @@ export class MotorSystem {
         this.applyMotorLearning(deltaTime);
         this.applyMotorHomeostasis(deltaTime);
 
-        this._persistCounter += deltaTime;
-        if (this._persistCounter > 20) {
-            this._persistCounter = 0;
-            this.persistToDatabase();
-        }
-        return this.getState();
-    }
+        systemCore.queuePersistence('motor', () => {
+            if (systemCore.database?.isInitialized) {
+                return systemCore.database.saveMotorState(this.state);
+            }
+        });
 
-    async persistToDatabase() {
-        if (!systemCore.database?.isInitialized) return;
-        try {
-            await systemCore.database.saveState('motor_estados', this.state);
-        } catch (_) { /* noop */ }
+        return this.getState();
     }
 
     processReflexes(input, dt) {
@@ -151,7 +144,7 @@ export class MotorSystem {
         if (!r) return;
         this.addToActionQueue({
             tipo: r.response, prioridad: r.priority, intensidad: 1.0, esReflejo: true,
-            timestamp: systemCore.systemTime || Date.now()
+            timestamp: Date.now()
         });
         this.emitEvent('reflex_executed', { reflex: name, response: r.response });
     }
@@ -216,7 +209,7 @@ export class MotorSystem {
         if (this.currentAction?.completado) this.currentAction = null;
         if (!this.currentAction && this.actionQueue.length > 0) {
             this.currentAction = this.actionQueue.shift();
-            this.currentAction.inicio = systemCore.systemTime || Date.now();
+            this.currentAction.inicio = Date.now();
             this.currentAction.completado = false;
             this.currentAction.progreso = 0;
             this.emitEvent('action_started', { tipo: this.currentAction.tipo });
@@ -244,7 +237,7 @@ export class MotorSystem {
         if (action.progreso >= 1.0) {
             action.completado = true;
             action.resultado = this.determineActionResult(skill, action);
-            action.fin = systemCore.systemTime || Date.now();
+            action.fin = Date.now();
             this.learnFromAction(skill, action);
             this.executionHistory.push({
                 tipo: action.tipo,
@@ -255,7 +248,6 @@ export class MotorSystem {
             if (this.executionHistory.length > 100) this.executionHistory.shift();
             this.emitEvent('action_completed', { tipo: action.tipo, resultado: action.resultado });
 
-            // Persistir acción motora
             if (systemCore.database?.isInitialized) {
                 systemCore.database.saveMotorAction({
                     tipo: action.tipo,
