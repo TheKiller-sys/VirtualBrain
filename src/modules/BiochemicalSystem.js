@@ -14,7 +14,6 @@ export class BiochemicalSystem {
         this.stressHistory = [];
         this.genotypeConfig = {};
         this.homeostasisTargets = {};
-        this._persistCounter = 0;
     }
 
     async initialize(characterConfig) {
@@ -118,7 +117,7 @@ export class BiochemicalSystem {
     }
 
     update(input, deltaTime) {
-        this.lastUpdateTime = systemCore.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime;
         if (!input) return this.getState();
 
         this.processEnvironmentalExchange(input.environmental, deltaTime);
@@ -128,19 +127,14 @@ export class BiochemicalSystem {
         this.updateVitalSigns();
         this.checkCriticalConditions();
 
-        this._persistCounter += deltaTime;
-        if (this._persistCounter > 10) {
-            this._persistCounter = 0;
-            this.persistToDatabase();
-        }
-        return this.getState();
-    }
+        // Persistencia vía buffer centralizado (SystemCore hace flush cada N segundos)
+        systemCore.queuePersistence('biochemical', () => {
+            if (systemCore.database?.isInitialized) {
+                return systemCore.database.saveBiochemicalState(this.state);
+            }
+        });
 
-    async persistToDatabase() {
-        if (!systemCore.database?.isInitialized) return;
-        try {
-            await systemCore.database.saveBiochemicalState(this.state);
-        } catch (_) { /* noop */ }
+        return this.getState();
     }
 
     processEnvironmentalExchange(env, dt) {
@@ -315,8 +309,7 @@ export class BiochemicalSystem {
     }
 
     /**
-     * Ritmo circadiano basado en hora real del día (0-24).
-     * Se usa systemCore.getCircadianHour() para no mezclar unidades.
+     * Ritmo circadiano basado en hora real (UTC 0-24).
      */
     getCircadianPhase() {
         const hour = systemCore.getCircadianHour();
