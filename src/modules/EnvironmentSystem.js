@@ -119,8 +119,16 @@ export class EnvironmentSystem {
         }
     }
 
+    /**
+     * FIX: usar Date.now() para timestamps persistibles/exportables.
+     * Se conserva simulationTime para debug interno.
+     */
     recordHistory() {
-        this.environmentHistory.push({ timestamp: this.lastUpdateTime, state: { ...this.state } });
+        this.environmentHistory.push({
+            timestamp: Date.now(),
+            simulationTime: this.lastUpdateTime,
+            state: { ...this.state }
+        });
         if (this.environmentHistory.length > 1000) this.environmentHistory.shift();
     }
 
