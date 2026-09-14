@@ -52,7 +52,6 @@ export class EmotionalSystem {
     }
 
     setupEmotionalPatterns() {
-        // Duraciones en SEGUNDOS de simulación
         this.emotionalPatterns.set('anxiety_cycle', {
             progression: ['miedo', 'ansiedad', 'miedo', 'fatiga'],
             duration: 300, intensityMultiplier: 1.2
@@ -190,9 +189,6 @@ export class EmotionalSystem {
         }
     }
 
-    /**
-     * Efectos circadianos basados en hora real (UTC 0-24).
-     */
     applyCircadianEffects(dt) {
         const hour = systemCore.getCircadianHour();
         let pe;
@@ -206,10 +202,6 @@ export class EmotionalSystem {
         this.state.estabilidad += (pe.stability || 0) * dt;
     }
 
-    /**
-     * Los patrones se miden en segundos de simulación. `dt` viene en segundos.
-     * FIX: antes se hacía `dt * 1000` mezclando unidades.
-     */
     processEmotionalPatterns(dt) {
         this.activePatterns = this.activePatterns.filter(p => {
             p.timeRemaining -= dt;
@@ -351,10 +343,6 @@ export class EmotionalSystem {
         this.state.regulacion = this.clamp(this.state.regulacion || 0, 0, 1);
     }
 
-    /**
-     * FIX: antes sumaba `0` para claves ausentes pero dividía por `recent.length`
-     * total, sesgando la media. Ahora promedia solo valores válidos.
-     */
     getRecentEmotionalStates() {
         const recent = this.emotionalMemory.slice(-20);
         if (recent.length === 0) return this.state;
@@ -372,8 +360,13 @@ export class EmotionalSystem {
         return avg;
     }
 
+    /**
+     * FIX: `emotionalMemory` es histórico interno. Antes guardaba systemTime
+     * (segundos) mientras el resto del proyecto usa Date.now() (ms). Se
+     * unifica a ms reales para consistencia.
+     */
     recordEmotionalState() {
-        const s = { ...this.state, timestamp: systemCore.systemTime };
+        const s = { ...this.state, timestamp: Date.now(), simulationTime: systemCore.systemTime };
         this.emotionalMemory.push(s);
         this.emotionalHistory.push(s);
         if (this.emotionalMemory.length > 200) this.emotionalMemory.shift();
