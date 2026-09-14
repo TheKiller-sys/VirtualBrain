@@ -21,7 +21,6 @@ export class CognitiveSystem {
         this.creativeSpikes = 0;
         this.cognitiveProfile = {};
         this.cognitiveLoad = 0;
-        this._persistCounter = 0;
     }
 
     async initialize(characterConfig) {
@@ -63,7 +62,7 @@ export class CognitiveSystem {
         this.thoughtHistory = [];
         this.insightMoments = [];
         this.creativeSpikes = 0;
-        this.lastUpdateTime = systemCore.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime;
     }
 
     setupCognitiveProcesses() {
@@ -109,7 +108,7 @@ export class CognitiveSystem {
     }
 
     update(input, deltaTime) {
-        this.lastUpdateTime = systemCore.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime;
         if (!input || !input.biochemical || !input.emotional) return this.getState();
 
         this.calculateBasalCapacities(input.biochemical);
@@ -128,19 +127,13 @@ export class CognitiveSystem {
         this.processThoughts(deltaTime);
         this.applyCognitiveHomeostasis(deltaTime);
 
-        this._persistCounter += deltaTime;
-        if (this._persistCounter > 10) {
-            this._persistCounter = 0;
-            this.persistToDatabase();
-        }
-        return this.getState();
-    }
+        systemCore.queuePersistence('cognitive', () => {
+            if (systemCore.database?.isInitialized) {
+                return systemCore.database.saveCognitiveState(this.state);
+            }
+        });
 
-    async persistToDatabase() {
-        if (!systemCore.database?.isInitialized) return;
-        try {
-            await systemCore.database.saveCognitiveState(this.state);
-        } catch (_) { /* noop */ }
+        return this.getState();
     }
 
     calculateBasalCapacities(bio) {
@@ -490,7 +483,6 @@ export class CognitiveSystem {
             if (this.thoughtHistory.length > 100) this.thoughtHistory.shift();
             this.emitEvent('thought', thought);
 
-            // Persistir pensamientos relevantes
             if (intensity > 0.5 && systemCore.database?.isInitialized) {
                 systemCore.database.saveThought({
                     contenido: thought.contenido,
@@ -623,7 +615,6 @@ export class CognitiveSystem {
 
         this.emitEvent('decision_made', decision);
 
-        // Persistir decisiones
         if (systemCore.database?.isInitialized) {
             systemCore.database.saveDecision({
                 decision: decision.decision?.text || decision.decision,
