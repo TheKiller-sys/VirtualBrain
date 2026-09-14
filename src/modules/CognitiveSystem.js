@@ -21,6 +21,12 @@ export class CognitiveSystem {
         this.creativeSpikes = 0;
         this.cognitiveProfile = {};
         this.cognitiveLoad = 0;
+
+        // FIX: buffers para no escribir directo a la BD en rutas calientes.
+        // queuePersistence('X', fn) reemplaza la closure si ya existe, así que
+        // los lotes se acumulan aquí y se vacían en un único flush.
+        this._pendingThoughts = [];
+        this._pendingDecisions = [];
     }
 
     async initialize(characterConfig) {
@@ -132,6 +138,27 @@ export class CognitiveSystem {
                 return systemCore.database.saveCognitiveState(this.state);
             }
         });
+
+        // FIX: flush batch de thoughts/decisions vía queuePersistence con
+        // un key separado. Vacía los buffers y los persiste de golpe.
+        if (this._pendingThoughts.length > 0 || this._pendingDecisions.length > 0) {
+            systemCore.queuePersistence('cognitive-batch', async () => {
+                const db = systemCore.database;
+                if (!db?.isInitialized) {
+                    this._pendingThoughts.length = 0;
+                    this._pendingDecisions.length = 0;
+                    return;
+                }
+                const thoughts = this._pendingThoughts.splice(0);
+                const decisions = this._pendingDecisions.splice(0);
+                for (const t of thoughts) {
+                    try { await db.saveThought(t); } catch (_) { /* noop */ }
+                }
+                for (const d of decisions) {
+                    try { await db.saveDecision(d); } catch (_) { /* noop */ }
+                }
+            });
+        }
 
         return this.getState();
     }
@@ -483,14 +510,20 @@ export class CognitiveSystem {
             if (this.thoughtHistory.length > 100) this.thoughtHistory.shift();
             this.emitEvent('thought', thought);
 
-            if (intensity > 0.5 && systemCore.database?.isInitialized) {
-                systemCore.database.saveThought({
+            // FIX: en lugar de escribir directo a la BD, encolamos en el
+            // buffer que se flushea con queuePersistence('cognitive-batch').
+            if (intensity > 0.5) {
+                this._pendingThoughts.push({
                     contenido: thought.contenido,
                     tipo: thought.tipo,
                     intensidad: thought.intensidad,
                     emocion_asociada: dom,
                     nivel_consciencia: consciousness
-                }).catch(() => {});
+                });
+                // Cap defensivo para no crecer sin límite si el flush tarda
+                if (this._pendingThoughts.length > 200) {
+                    this._pendingThoughts.splice(0, this._pendingThoughts.length - 200);
+                }
             }
         }
     }
@@ -615,16 +648,18 @@ export class CognitiveSystem {
 
         this.emitEvent('decision_made', decision);
 
-        if (systemCore.database?.isInitialized) {
-            systemCore.database.saveDecision({
-                decision: decision.decision?.text || decision.decision,
-                opciones: options,
-                contexto: context,
-                confianza: decision.confidence,
-                tiempo_procesamiento: decision.processingTime,
-                emocion_dominante: 'neutral',
-                resultado: 'pendiente'
-            }).catch(() => {});
+        // FIX: buffer en vez de escritura directa a la BD
+        this._pendingDecisions.push({
+            decision: decision.decision?.text || decision.decision,
+            opciones: options,
+            contexto: context,
+            confianza: decision.confidence,
+            tiempo_procesamiento: decision.processingTime,
+            emocion_dominante: 'neutral',
+            resultado: 'pendiente'
+        });
+        if (this._pendingDecisions.length > 100) {
+            this._pendingDecisions.splice(0, this._pendingDecisions.length - 100);
         }
 
         return decision;
@@ -734,6 +769,8 @@ export class CognitiveSystem {
         this.thoughtHistory = [];
         this.insightMoments = [];
         this.creativeSpikes = 0;
+        this._pendingThoughts = [];
+        this._pendingDecisions = [];
     }
 
     exportData() {
