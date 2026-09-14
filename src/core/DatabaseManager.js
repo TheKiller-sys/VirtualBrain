@@ -18,7 +18,8 @@ export class DatabaseManager {
             path.join(__dirname, '../../database/cerebro.db');
         this.backupInterval = null;
         this.cache = new Map();
-        this.cacheTimeout = 300000;
+        this.cacheTimeout = 300000; // 5 min para históricos
+        this._columnCache = new Map();
         this.metrics = {
             queries: 0,
             cacheHits: 0,
@@ -41,20 +42,22 @@ export class DatabaseManager {
                 driver: sqlite3.Database
             });
 
-            // PRAGMAs de rendimiento
+            // PRAGMAs de rendimiento (mmap reducido a 256MB, seguro para dev)
             await this.db.exec('PRAGMA journal_mode = WAL');
             await this.db.exec('PRAGMA synchronous = NORMAL');
             await this.db.exec('PRAGMA cache_size = -200000');
             await this.db.exec('PRAGMA temp_store = MEMORY');
-            await this.db.exec('PRAGMA mmap_size = 30000000000');
+            await this.db.exec('PRAGMA mmap_size = 268435456'); // 256 MB
             await this.db.exec('PRAGMA page_size = 32768');
             await this.db.exec('PRAGMA wal_autocheckpoint = 1000');
             await this.db.exec('PRAGMA foreign_keys = ON');
+            await this.db.exec('PRAGMA busy_timeout = 5000');
 
             await this.createAllTables();
             await this.createAllIndexes();
             await this.createAllViews();
             await this.createAllTriggers();
+            await this.migrateTriggers();
             await this.createAllFunctions();
             await this.initializeData();
 
@@ -77,6 +80,10 @@ export class DatabaseManager {
         if (this.backupInterval.unref) this.backupInterval.unref();
     }
 
+    /**
+     * Backup sin bloquear: checkpoint WAL + copia de archivos.
+     * Mucho más rápido que VACUUM INTO y no bloquea el bucle de 30Hz.
+     */
     async createBackup() {
         try {
             const backupDir = path.join(path.dirname(this.dbPath), 'backups');
@@ -85,10 +92,14 @@ export class DatabaseManager {
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
             const backupPath = path.join(backupDir, `cerebro_${timestamp}.db`);
 
-            await this.db.exec(`VACUUM INTO '${backupPath.replace(/'/g, "''")}'`);
+            // Forzar checkpoint para que el .db contenga todos los datos
+            try { await this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (_) { /* noop */ }
 
+            fs.copyFileSync(this.dbPath, backupPath);
+
+            // Rotación: mantener solo los 10 más recientes
             const backups = fs.readdirSync(backupDir)
-                .filter(f => f.startsWith('cerebro_'))
+                .filter(f => f.startsWith('cerebro_') && f.endsWith('.db'))
                 .sort();
             while (backups.length > 10) {
                 const old = backups.shift();
@@ -251,7 +262,7 @@ export class DatabaseManager {
             );
         `);
 
-        // ============ EMOCIONES (con ansiedad y bienestar) ============
+        // ============ EMOCIONES ============
         await this.db.exec(`
             CREATE TABLE IF NOT EXISTS emociones_estados (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1067,7 +1078,10 @@ export class DatabaseManager {
             'CREATE INDEX IF NOT EXISTS idx_redes_sinap_origen ON redes_sinapticas(origen)',
 
             'CREATE INDEX IF NOT EXISTS idx_temporal_cache_clave ON temporal_cache(clave)',
-            'CREATE INDEX IF NOT EXISTS idx_config_param_clave ON config_parametros(clave)'
+            'CREATE INDEX IF NOT EXISTS idx_config_param_clave ON config_parametros(clave)',
+
+            // Índices UNIQUE que faltaban para ON CONFLICT
+            'CREATE UNIQUE INDEX IF NOT EXISTS idx_redes_sinap_unique ON redes_sinapticas(origen, destino)'
         ];
 
         for (const idx of indexes) {
@@ -1142,7 +1156,6 @@ export class DatabaseManager {
 
     async createAllTriggers() {
         const triggers = [
-            // Detección de anomalías emocionales (miedo muy alto)
             `CREATE TRIGGER IF NOT EXISTS trigger_anomalia_miedo
              AFTER INSERT ON emociones_estados
              WHEN NEW.miedo > 70
@@ -1152,7 +1165,6 @@ export class DatabaseManager {
                         CASE WHEN NEW.miedo > 85 THEN 0.9 ELSE 0.5 END);
              END`,
 
-            // Consolidación automática de memoria de trabajo fuerte
             `CREATE TRIGGER IF NOT EXISTS trigger_consolidar_memoria
              AFTER INSERT ON memoria_trabajo
              WHEN NEW.fuerza > 0.7
@@ -1161,19 +1173,6 @@ export class DatabaseManager {
                     (timestamp, contenido, contexto, fuerza, importancia, emocion_asociada, consolidada)
                 VALUES
                     (NEW.timestamp, NEW.contenido, 'consolidado_auto', NEW.fuerza, 0.6, 'neutral', 1);
-             END`,
-
-            // Registro de evolución de personalidad
-            `CREATE TRIGGER IF NOT EXISTS trigger_evolucion_personalidad
-             AFTER UPDATE ON personalidad_rasgos
-             BEGIN
-                INSERT INTO personalidad_evolucion (timestamp, rasgo, valor_anterior, valor_nuevo, delta, causa)
-                VALUES
-                    (NEW.timestamp, 'apertura', OLD.apertura, NEW.apertura, NEW.apertura - OLD.apertura, 'cambio_natural'),
-                    (NEW.timestamp, 'conciencia', OLD.conciencia, NEW.conciencia, NEW.conciencia - OLD.conciencia, 'cambio_natural'),
-                    (NEW.timestamp, 'extraversion', OLD.extraversion, NEW.extraversion, NEW.extraversion - OLD.extraversion, 'cambio_natural'),
-                    (NEW.timestamp, 'amabilidad', OLD.amabilidad, NEW.amabilidad, NEW.amabilidad - OLD.amabilidad, 'cambio_natural'),
-                    (NEW.timestamp, 'neuroticismo', OLD.neuroticismo, NEW.neuroticismo, NEW.neuroticismo - OLD.neuroticismo, 'cambio_natural');
              END`
         ];
 
@@ -1183,24 +1182,45 @@ export class DatabaseManager {
         }
     }
 
+    /**
+     * Migración: recrea triggers que cambiaron de lógica.
+     * Ejecuta DROP + CREATE para asegurar la versión correcta en BDs existentes.
+     */
+    async migrateTriggers() {
+        try {
+            await this.db.exec('DROP TRIGGER IF EXISTS trigger_evolucion_personalidad');
+            await this.db.exec(`
+                CREATE TRIGGER trigger_evolucion_personalidad
+                AFTER UPDATE ON personalidad_rasgos
+                WHEN ABS(NEW.apertura - OLD.apertura) > 0.005
+                   OR ABS(NEW.conciencia - OLD.conciencia) > 0.005
+                   OR ABS(NEW.extraversion - OLD.extraversion) > 0.005
+                   OR ABS(NEW.amabilidad - OLD.amabilidad) > 0.005
+                   OR ABS(NEW.neuroticismo - OLD.neuroticismo) > 0.005
+                BEGIN
+                    INSERT INTO personalidad_evolucion (timestamp, rasgo, valor_anterior, valor_nuevo, delta, causa)
+                    VALUES
+                        (NEW.timestamp, 'apertura', OLD.apertura, NEW.apertura, NEW.apertura - OLD.apertura, 'cambio_natural'),
+                        (NEW.timestamp, 'conciencia', OLD.conciencia, NEW.conciencia, NEW.conciencia - OLD.conciencia, 'cambio_natural'),
+                        (NEW.timestamp, 'extraversion', OLD.extraversion, NEW.extraversion, NEW.extraversion - OLD.extraversion, 'cambio_natural'),
+                        (NEW.timestamp, 'amabilidad', OLD.amabilidad, NEW.amabilidad, NEW.amabilidad - OLD.amabilidad, 'cambio_natural'),
+                        (NEW.timestamp, 'neuroticismo', OLD.neuroticismo, NEW.neuroticismo, NEW.neuroticismo - OLD.neuroticismo, 'cambio_natural');
+                END
+            `);
+        } catch (err) {
+            console.warn('⚠️ Migración trigger personalidad:', err.message);
+        }
+    }
+
     // ============================================================
-    // FUNCIONES SQLITE PERSONALIZADAS (reemplazan STDDEV, CORR, etc.)
+    // FUNCIONES SQLITE PERSONALIZADAS
     // ============================================================
 
     async createAllFunctions() {
-        // Estas funciones las registramos en la conexión sqlite
-        // Nota: sqlite (el wrapper JS) permite registrar funciones globales
-        // accediendo al driver subyacente.
-
         const driver = this.db.driver || (this.db.config && this.db.config.driver);
-        // Fallback: usamos `this.db.db` que es el driver sqlite3 interno en el wrapper `sqlite`
         const raw = this.db.db || driver;
-        if (!raw || typeof raw.aggregate !== 'function') {
-            // Si no podemos registrar funciones custom, no pasa nada: usamos JS en su lugar
-            return;
-        }
+        if (!raw || typeof raw.aggregate !== 'function') return;
 
-        // MEDIA (AVG ya existe, pero por seguridad)
         raw.aggregate('MEDIAN', {
             start: [],
             step: function (arr, value) {
@@ -1216,7 +1236,6 @@ export class DatabaseManager {
             }
         });
 
-        // DESVIACIÓN ESTÁNDAR
         raw.aggregate('STDDEV', {
             start: { n: 0, sum: 0, sumSq: 0 },
             step: function (state, value) {
@@ -1234,7 +1253,6 @@ export class DatabaseManager {
             }
         });
 
-        // CORRELACIÓN DE PEARSON
         raw.aggregate('CORR', {
             start: { n: 0, sumX: 0, sumY: 0, sumXY: 0, sumX2: 0, sumY2: 0 },
             step: function (state, x, y) {
@@ -1312,24 +1330,49 @@ export class DatabaseManager {
     }
 
     // ============================================================
-    // SAVE STATE GENÉRICO
+    // COLUMNAS: whitelist con cache
+    // ============================================================
+
+    async _getTableColumns(table) {
+        if (this._columnCache.has(table)) return this._columnCache.get(table);
+        // Validar nombre de tabla contra caracteres seguros (defensa adicional)
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table)) {
+            throw new Error(`Nombre de tabla inválido: ${table}`);
+        }
+        const cols = await this.db.all(`PRAGMA table_info(${table})`);
+        const names = cols.map(c => c.name);
+        this._columnCache.set(table, names);
+        return names;
+    }
+
+    // ============================================================
+    // SAVE STATE GENÉRICO (con whitelist de columnas)
     // ============================================================
 
     async saveState(table, data) {
         const timestamp = data.timestamp || Date.now();
         const payload = { ...data, timestamp };
-        const columns = Object.keys(payload);
+
+        const validColumns = await this._getTableColumns(table);
+        if (!validColumns.length) {
+            throw new Error(`Tabla desconocida o sin columnas: ${table}`);
+        }
+
+        const columns = Object.keys(payload).filter(c => validColumns.includes(c));
+        if (columns.length === 0) {
+            throw new Error(`Ninguna columna válida para ${table}. Recibidas: ${Object.keys(payload).join(',')}`);
+        }
+
         const placeholders = columns.map(() => '?').join(',');
         const values = columns.map(k => payload[k]);
-
         const query = `INSERT OR REPLACE INTO ${table} (${columns.join(',')}) VALUES (${placeholders})`;
-        const startTime = Date.now();
 
+        const startTime = Date.now();
         try {
             const result = await this.db.run(query, values);
             this.metrics.queries++;
-            this.metrics.avgQueryTime =
-                this.metrics.avgQueryTime * 0.9 + (Date.now() - startTime) * 0.1;
+            const dt = Date.now() - startTime;
+            this.metrics.avgQueryTime = this.metrics.avgQueryTime * 0.9 + dt * 0.1;
             return result;
         } catch (error) {
             console.error(`❌ Error guardando en ${table}:`, error.message);
@@ -1476,7 +1519,6 @@ export class DatabaseManager {
         };
 
         if (existing) {
-            // ✅ UPDATE en lugar de INSERT OR REPLACE para disparar el trigger
             await this.db.run(
                 `UPDATE personalidad_rasgos
                  SET timestamp = ?, apertura = ?, conciencia = ?, extraversion = ?, amabilidad = ?, neuroticismo = ?
@@ -1541,15 +1583,6 @@ export class DatabaseManager {
     }
 
     async saveConnection(origin, destination, strength = 0.5, tipo = 'sináptica') {
-        const query = `
-            INSERT INTO redes_sinapticas (origen, destino, fuerza, plasticidad, ultima_actualizacion)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(origen, destino) DO UPDATE SET
-                fuerza = excluded.fuerza,
-                ultima_actualizacion = excluded.ultima_actualizacion
-        `;
-        // Nota: ON CONFLICT requiere un índice único en (origen, destino)
-        // Para evitar problemas, usamos INSERT OR REPLACE con una búsqueda previa
         const existing = await this.db.get(
             'SELECT id FROM redes_sinapticas WHERE origen = ? AND destino = ?',
             [origin, destination]
@@ -1704,7 +1737,7 @@ export class DatabaseManager {
 
     async searchMemories(query, limit = 20) {
         return this.db.all(
-            `SELECT *, 
+            `SELECT *,
                     (CASE WHEN contenido LIKE ? THEN 1.0 ELSE 0.5 END) AS relevancia
              FROM memoria_episodica
              WHERE contenido LIKE ?
@@ -1735,13 +1768,8 @@ export class DatabaseManager {
         );
     }
 
-    async getRecentThoughts(limit = 10) {
-        return this.getThoughtHistory(limit);
-    }
-
-    async getRecentDecisions(limit = 10) {
-        return this.getDecisionHistory(limit);
-    }
+    async getRecentThoughts(limit = 10) { return this.getThoughtHistory(limit); }
+    async getRecentDecisions(limit = 10) { return this.getDecisionHistory(limit); }
 
     async getRecentMemories(limit = 10) {
         return this.db.all(
@@ -1772,16 +1800,9 @@ export class DatabaseManager {
     async getCurrentPersonality() { return this.getState('personalidad_rasgos'); }
 
     // ============================================================
-    // FEED DE APRENDIZAJE (NUEVO)
+    // FEED DE APRENDIZAJE
     // ============================================================
 
-    /**
-     * Devuelve los eventos de aprendizaje más recientes combinando:
-     *  - cognitivo_aprendizaje (skills)
-     *  - memoria_episodica (nuevas memorias consolidadas)
-     *  - personalidad_evolucion (cambios en rasgos)
-     *  - patrones_detectados (patrones nuevos)
-     */
     async getLearningFeed(limit = 30) {
         const events = [];
 
@@ -2004,6 +2025,9 @@ export class DatabaseManager {
 
         const table = tableMap[variable];
         if (!table) throw new Error(`Variable ${variable} no soportada`);
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(variable)) {
+            throw new Error(`Variable inválida: ${variable}`);
+        }
 
         return this.db.all(
             `SELECT timestamp, ${variable} AS valor
@@ -2019,7 +2043,6 @@ export class DatabaseManager {
         const interval = periodMap[period] || 86400000;
         const since = Date.now() - interval;
 
-        // Buscamos pares de variables conocidas en tablas compatibles
         const pairs = [
             { t1: 'bioquimica_estados', c1: 'oxigeno', t2: 'emociones_estados', c2: 'alegria' },
             { t1: 'bioquimica_estados', c1: 'energia', t2: 'emociones_estados', c2: 'confianza' },
@@ -2036,7 +2059,6 @@ export class DatabaseManager {
             return { correlacion: 0, muestras: 0, error: 'Par de variables no soportado' };
         }
 
-        // Ahora usamos CORR registrada como función SQLite personalizada
         try {
             const result = await this.db.get(
                 `SELECT CORR(a.${pair.c1}, b.${pair.c2}) AS correlacion,
@@ -2050,7 +2072,6 @@ export class DatabaseManager {
             );
             return result || { correlacion: 0, muestras: 0 };
         } catch (err) {
-            // Fallback en JS si CORR no está disponible
             return this._findCorrelationJS(pair, since);
         }
     }
@@ -2113,7 +2134,6 @@ export class DatabaseManager {
                 [threshold, since]
             );
         } catch (err) {
-            // Fallback: devolvemos las anomalías sin z-score
             return this.db.all(
                 `SELECT * FROM analisis_anomalias WHERE timestamp > ? ORDER BY timestamp DESC`,
                 since
@@ -2134,6 +2154,9 @@ export class DatabaseManager {
         };
         const table = tableMap[variable];
         if (!table) return { error: `Variable ${variable} no soportada` };
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(variable)) {
+            return { error: `Variable inválida: ${variable}` };
+        }
 
         const rows = await this.db.all(
             `SELECT ${variable} AS v, timestamp
@@ -2143,7 +2166,6 @@ export class DatabaseManager {
         );
         if (rows.length < 5) return { error: 'Datos insuficientes', muestras: rows.length };
 
-        // Regresión lineal simple sobre los índices
         const n = rows.length;
         let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
         rows.forEach((r, i) => {
@@ -2347,7 +2369,6 @@ export class DatabaseManager {
 
         for (const t of tables) {
             try {
-                // Comprobar si la tabla tiene columna timestamp
                 const cols = await this.db.all(`PRAGMA table_info(${t.name})`);
                 const hasTimestamp = cols.some(c => c.name === 'timestamp');
                 const query = hasTimestamp
@@ -2365,18 +2386,23 @@ export class DatabaseManager {
         if (!data || !data.tables) return;
         const tables = Object.keys(data.tables);
         for (const table of tables) {
+            if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table)) continue;
             const rows = data.tables[table];
             if (!Array.isArray(rows) || rows.length === 0) continue;
-            const columns = Object.keys(rows[0]);
-            const placeholders = columns.map(() => '?').join(',');
+            const validColumns = await this._getTableColumns(table);
+            if (!validColumns.length) continue;
+
             for (const row of rows) {
+                const columns = Object.keys(row).filter(c => validColumns.includes(c));
+                if (columns.length === 0) continue;
+                const placeholders = columns.map(() => '?').join(',');
                 const values = columns.map(c => row[c]);
                 try {
                     await this.db.run(
                         `INSERT OR IGNORE INTO ${table} (${columns.join(',')}) VALUES (${placeholders})`,
                         values
                     );
-                } catch (_) { /* fila con conflicto, se ignora */ }
+                } catch (_) { /* conflicto, ignorar */ }
             }
         }
         console.log(`✅ Importadas ${tables.length} tablas`);
@@ -2396,6 +2422,7 @@ export class DatabaseManager {
         await this.db.exec('REINDEX');
         await this.db.exec('VACUUM');
         this.cache.clear();
+        this._columnCache.clear();
         console.log('✅ Optimización completada');
     }
 
@@ -2484,6 +2511,10 @@ export class DatabaseManager {
     async close() {
         if (this.backupInterval) clearInterval(this.backupInterval);
         if (this.db) {
+            try {
+                // Checkpoint final antes de cerrar
+                await this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+            } catch (_) { /* noop */ }
             try { await this.db.close(); } catch (_) { /* noop */ }
             this.isInitialized = false;
         }
