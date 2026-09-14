@@ -20,7 +20,6 @@ export class MemorySystem {
         this.lastUpdateTime = 0;
         this.memoryProfile = {};
         this.parametros = {};
-        this._persistCounter = 0;
     }
 
     async initialize(characterConfig) {
@@ -93,7 +92,7 @@ export class MemorySystem {
     }
 
     update(input, deltaTime) {
-        this.lastUpdateTime = systemCore.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime;
         if (!input || !input.biochemical || !input.cognitive) return this.getState();
 
         this.processWorkingMemory(input, deltaTime);
@@ -135,7 +134,7 @@ export class MemorySystem {
                 biochemical: { ...context.biochemical },
                 emotional: { ...context.emotional },
                 cognitive: { ...context.cognitive },
-                timestamp: systemCore.systemTime || Date.now()
+                timestamp: Date.now()
             },
             fuerza: this.calculateInitialStrength(context),
             tipo: this.classifyMemory(evento),
@@ -152,7 +151,6 @@ export class MemorySystem {
     calculateInitialStrength(context) {
         let s = 0.5;
         s *= this.calculateEmotionalImpact(context.emotional);
-        s *= 1.0; // repetition
         s *= ((context.cognitive?.atencion || 50) / 100);
         s *= ((context.emotional?.alegria || 50) / 100);
         return Math.min(1.0, s);
@@ -203,14 +201,19 @@ export class MemorySystem {
         if (this.consolidationQueue.length > 50) this.consolidationQueue = this.consolidationQueue.slice(-30);
     }
 
+    /**
+     * FIX: todos los timestamps persistidos usan Date.now() (ms reales).
+     * systemCore.systemTime solo se usa para lógica interna.
+     */
     consolidateToLongTerm(memory) {
+        const now = Date.now();
         const ltm = {
             ...memory,
             consolidado: true,
-            timestampConsolidacion: systemCore.systemTime || Date.now(),
+            timestampConsolidacion: now,
             fuerzaConsolidada: memory.fuerza,
             accesos: 0,
-            ultimoAcceso: systemCore.systemTime || Date.now(),
+            ultimoAcceso: now,
             importancia: this.calculateImportance(memory)
         };
 
@@ -227,7 +230,6 @@ export class MemorySystem {
             this.memories.episodica = this.memories.episodica.sort((a, b) => b.importancia - a.importancia).slice(0, 1500);
         }
 
-        // Persistir en BD
         if (systemCore.database?.isInitialized) {
             systemCore.database.saveMemory({
                 contenido: typeof memory.contenido === 'string' ? memory.contenido : JSON.stringify(memory.contenido),
@@ -270,13 +272,13 @@ export class MemorySystem {
             existing.importancia = Math.max(existing.importancia, memory.importancia);
         }
 
-        // Persistir
         if (systemCore.database?.isInitialized) {
+            const skill = this.memories.procedural.get(key);
             systemCore.database.saveSkill({
                 habilidad: key,
-                nivel: this.memories.procedural.get(key).nivel,
-                practicas: this.memories.procedural.get(key).practicas,
-                eficiencia: this.memories.procedural.get(key).eficiencia,
+                nivel: skill.nivel,
+                practicas: skill.practicas,
+                eficiencia: skill.eficiencia,
                 complejidad: 5,
                 importancia: memory.importancia
             }).catch(() => {});
@@ -289,7 +291,7 @@ export class MemorySystem {
             this.memories.espacial.set(key, {
                 ubicacion: memory.contenido,
                 precision: memory.fuerza,
-                ultimoAcceso: systemCore.systemTime || Date.now(),
+                ultimoAcceso: Date.now(),
                 importancia: memory.importancia
             });
         }
@@ -299,7 +301,7 @@ export class MemorySystem {
         const key = String(memory.contenido).substring(0, 30).toLowerCase().replace(/\s+/g, '_');
         const existing = this.memories.emocional.find(m => m.key === key);
         if (!existing) {
-            this.memories.emocional.push({ key, ...memory, intensidad: memory.fuerza, ultimoAcceso: systemCore.systemTime || Date.now() });
+            this.memories.emocional.push({ key, ...memory, intensidad: memory.fuerza, ultimoAcceso: Date.now() });
         } else {
             existing.intensidad = (existing.intensidad + memory.fuerza) / 2;
             existing.importancia = Math.max(existing.importancia, memory.importancia);
@@ -337,11 +339,11 @@ export class MemorySystem {
             if (w.length > 3) {
                 const existing = this.memories.semantica.get(w);
                 if (!existing) {
-                    this.memories.semantica.set(w, { concepto: w, fuerza: 0.3, contextos: 1, ultimaActualizacion: systemCore.systemTime || Date.now() });
+                    this.memories.semantica.set(w, { concepto: w, fuerza: 0.3, contextos: 1, ultimaActualizacion: Date.now() });
                 } else {
                     existing.fuerza = Math.min(1, existing.fuerza + 0.02);
                     existing.contextos++;
-                    existing.ultimaActualizacion = systemCore.systemTime || Date.now();
+                    existing.ultimaActualizacion = Date.now();
                 }
             }
         });
@@ -357,15 +359,19 @@ export class MemorySystem {
     }
 
     strengthenAssociations(dt) {
-        // Simplificado: solo ajusta el estado general de asociación
         this.state.asociacion = Math.min(100, (this.state.asociacion || 0) + 0.05 * dt);
     }
 
+    /**
+     * FIX: comparar siempre con Date.now() (ms). Antes se restaba
+     * systemTime (segundos) con timestampConsolidacion (ms) → basura.
+     */
     applyForgettingProcess(dt) {
+        const now = Date.now();
         const forgetRate = this.parametros.olvido * (1 - this.memoryProfile.retentionRate / 2);
         this.memories.episodica = this.memories.episodica.filter(m => {
-            const t = (systemCore.systemTime || Date.now()) - m.timestampConsolidacion;
-            const survival = Math.exp(-forgetRate * t / 86400);
+            const t = now - (m.timestampConsolidacion || now);
+            const survival = Math.exp(-forgetRate * t / 86400000);
             const boost = 1 + (m.importancia || 0) * 0.5;
             return Math.random() < survival * boost;
         });
@@ -504,10 +510,11 @@ export class MemorySystem {
     }
 
     recordMemoryAccess(results) {
+        const now = Date.now();
         Object.values(results).forEach(mems => {
             mems.forEach(m => {
                 if (m.acceso !== undefined) m.acceso++;
-                if (m.ultimoAcceso !== undefined) m.ultimoAcceso = systemCore.systemTime || Date.now();
+                if (m.ultimoAcceso !== undefined) m.ultimoAcceso = now;
             });
         });
     }
