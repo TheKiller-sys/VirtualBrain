@@ -1,6 +1,8 @@
 // src/core/SystemCore.js
 // Núcleo central que coordina todos los módulos — V4
 
+import { TUNING } from '../config/tuning.js';
+
 export class SystemCore {
     constructor() {
         this.modules = new Map();
@@ -14,6 +16,11 @@ export class SystemCore {
         this.database = null;
         this.eventListeners = [];
 
+        // Buffer centralizado de persistencia
+        this._pendingPersists = new Map();
+        this._lastPersistFlush = 0;
+        this._persistFlushInterval = TUNING.persistFlushInterval;
+
         this.statistics = {
             stabilityHistory: [],
             performanceHistory: [],
@@ -26,18 +33,8 @@ export class SystemCore {
 
         this.alerts = {
             thresholds: {
-                critical: {
-                    oxygen: 15,
-                    energy: 10,
-                    cortisol: 85,
-                    stability: 30
-                },
-                warning: {
-                    oxygen: 25,
-                    energy: 20,
-                    cortisol: 70,
-                    stability: 50
-                }
+                critical: { ...TUNING.alerts.critical },
+                warning: { ...TUNING.alerts.warning }
             },
             history: [],
             activeAlerts: []
@@ -53,26 +50,25 @@ export class SystemCore {
             'motivation',
             'sleep',
             'motor',
-            'visual',
             'control'
         ];
 
         // Cache para getState()
         this._stateCache = null;
         this._stateCacheAt = 0;
-        this._stateCacheTTL = 500; // ms
+        this._stateCacheTTL = TUNING.stateCacheTTL;
 
         this.initializeCore();
     }
 
     initializeCore() {
         this.coreConfig = {
-            updateFrequency: 30,
-            maxCycleHistory: 2000,
-            emergencyThreshold: 0.85,
+            updateFrequency: TUNING.updateHz,
+            maxCycleHistory: TUNING.maxCycleHistory,
+            emergencyThreshold: TUNING.emergencyThreshold,
             learningRate: 0.1,
-            homeostasisRate: 0.05,
-            consciousnessThreshold: 0.3
+            homeostasisRate: TUNING.homeostasisRate,
+            consciousnessThreshold: TUNING.consciousnessThreshold
         };
 
         this.systemState = {
@@ -110,15 +106,41 @@ export class SystemCore {
         this.logSystem('Base de datos vinculada al núcleo');
     }
 
+    // ==================== PERSISTENCIA CENTRALIZADA ====================
+
+    /**
+     * Los módulos encolan una closure. SystemCore la ejecuta cada
+     * `_persistFlushInterval` segundos. Si el mismo módulo encola dos veces
+     * antes del flush, la última sobreescribe (debounce natural).
+     */
+    queuePersistence(moduleName, fn) {
+        if (typeof fn !== 'function') return;
+        this._pendingPersists.set(moduleName, fn);
+    }
+
+    async flushPendingPersistence() {
+        if (this._pendingPersists.size === 0) return;
+        if (!this.database?.isInitialized) {
+            this._pendingPersists.clear();
+            return;
+        }
+        const fns = Array.from(this._pendingPersists.values());
+        this._pendingPersists.clear();
+        for (const fn of fns) {
+            try { await fn(); }
+            catch (err) { this.logSystem(`Error persistiendo: ${err.message}`, 'warning'); }
+        }
+    }
+
     // ==================== UTILIDADES DE TIEMPO ====================
 
     /**
-     * Hora circadiana real (0–24). Independiente del tiempo interno de simulación.
-     * Usada por los módulos que necesitan ritmo día/noche real.
+     * Hora circadiana real (0–24) basada en reloj UTC. Independiente del
+     * tiempo interno de simulación (systemTime).
      */
     getCircadianHour() {
         const now = Date.now();
-        const dayMs = now % 86400000;
+        const dayMs = now % TUNING.circadian.msPerDay;
         return dayMs / 3600000;
     }
 
@@ -137,7 +159,7 @@ export class SystemCore {
         if (this.eventBus?.dispatchEvent && typeof CustomEvent !== 'undefined') {
             try {
                 this.eventBus.dispatchEvent(new CustomEvent(type, { detail: data }));
-            } catch (_) { /* noop en Node */ }
+            } catch (_) { /* noop en Node 18 */ }
         }
     }
 
@@ -202,7 +224,7 @@ export class SystemCore {
     handleModuleEvent(moduleName, event) {
         const record = { module: moduleName, event, timestamp: this.systemTime };
         this.eventHistory.push(record);
-        if (this.eventHistory.length > 1000) this.eventHistory.shift();
+        if (this.eventHistory.length > TUNING.maxEventHistory) this.eventHistory.shift();
 
         if (event?.type === 'critical') {
             this.handleCriticalEvent(moduleName, event);
@@ -242,6 +264,13 @@ export class SystemCore {
             this.checkAlerts(results);
             this.updateConsciousness(results);
             this.recordCycle(results);
+
+            // Flush periódico de persistencia (centralizado)
+            this._lastPersistFlush += deltaTime;
+            if (this._lastPersistFlush >= this._persistFlushInterval) {
+                this._lastPersistFlush = 0;
+                this.flushPendingPersistence().catch(() => { /* silencioso */ });
+            }
         } catch (error) {
             this.logSystem(`Error en ciclo de actualización: ${error.message}`, 'error');
             console.error(error.stack);
@@ -260,7 +289,6 @@ export class SystemCore {
             memory: this.modules.get('memory')?.getState() || {},
             motor: this.modules.get('motor')?.getState() || {},
             sleep: this.modules.get('sleep')?.getState() || {},
-            visual: this.modules.get('visual')?.getState() || {},
             time: this.systemTime,
             cycle: this.cycleCount
         };
@@ -338,17 +366,6 @@ export class SystemCore {
             );
         }
 
-        const visual = M.get('visual');
-        if (visual) {
-            results.visual = visual.update({
-                biochemical: results.biochemical,
-                emotional: results.emotional,
-                cognitive: results.cognitive,
-                motor: results.motor,
-                sleep: results.sleep
-            });
-        }
-
         return results;
     }
 
@@ -418,7 +435,7 @@ export class SystemCore {
         this.statistics.emotionalStability.push(emo.estabilidad || 50);
         this.statistics.cognitiveEfficiency.push(cog.fluidez || 50);
 
-        const max = 1000;
+        const max = TUNING.maxStabilityHistory;
         ['stabilityHistory', 'performanceHistory', 'emotionalStability', 'cognitiveEfficiency']
             .forEach(k => {
                 if (this.statistics[k].length > max) this.statistics[k] = this.statistics[k].slice(-max);
@@ -556,11 +573,10 @@ export class SystemCore {
             }
         });
 
-        // Límite de reintentos para no quedar atrapado en emergencia infinita
         if (!this._emergencyRetries) this._emergencyRetries = 0;
         this._emergencyRetries++;
 
-        if (this._emergencyRetries <= 12) { // hasta ~60 segundos
+        if (this._emergencyRetries <= 12) {
             setTimeout(() => this.resolveEmergency(), 5000);
         } else {
             this.logSystem('⚠️ Emergencia persiste tras múltiples reintentos. Requiere intervención manual.', 'error');
@@ -652,6 +668,8 @@ export class SystemCore {
         this._emergencyRetries = 0;
         this.alerts.activeAlerts = [];
         this._stateCache = null;
+        this._pendingPersists.clear();
+        this._lastPersistFlush = 0;
         this.statistics = {
             stabilityHistory: [],
             performanceHistory: [],
@@ -719,7 +737,6 @@ export class SystemCore {
     // ==================== API (con cache) ====================
 
     async getState() {
-        // Cache de 500ms para evitar recalcular 11 veces por request HTTP
         const now = Date.now();
         if (this._stateCache && (now - this._stateCacheAt) < this._stateCacheTTL) {
             return this._stateCache;
@@ -759,6 +776,7 @@ export class SystemCore {
             cycles: this.cycleCount || 0,
             modules: Array.from(this.modules.keys()),
             alerts: this.alerts?.activeAlerts?.length || 0,
+            pendingPersists: this._pendingPersists.size,
             timestamp: Date.now()
         };
 
