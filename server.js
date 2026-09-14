@@ -51,15 +51,20 @@ app.use(cors({
 }));
 
 app.use(express.json({ limit: TUNING.chat.bodyLimit }));
-app.use(express.static(path.join(__dirname, 'public')));
+// FIX: maxAge/etag para cache de assets estáticos
+app.use(express.static(path.join(__dirname, 'public'), {
+    maxAge: '1h',
+    etag: true
+}));
 
 // ============ RATE LIMITER (in-memory) ============
 function rateLimit({ windowMs = 60000, max = 120 } = {}) {
     const hits = new Map();
-    setInterval(() => {
+    const cleanup = setInterval(() => {
         const now = Date.now();
         for (const [k, v] of hits) if (v.resetAt < now) hits.delete(k);
-    }, windowMs).unref?.();
+    }, windowMs);
+    if (cleanup.unref) cleanup.unref();
 
     return (req, res, next) => {
         const key = req.ip || req.socket?.remoteAddress || 'unknown';
@@ -102,8 +107,9 @@ app.get('/', (req, res) => {
 // ============ CÁLCULO DE REGIONES CEREBRALES ============
 // Fuente única de verdad. VisualSystem eliminado: la región occipital
 // se deriva ahora de procesos cognitivos/emocionales que la alimentan.
-function computeActivatedRegions(state, analysisType) {
-    const modules = state.modules || {};
+// FIX: analysisType con default 'general' para evitar call sites sin argumento.
+function computeActivatedRegions(state, analysisType = 'general') {
+    const modules = state?.modules || {};
     const map = { frontal: 0, parietal: 0, temporal: 0, occipital: 0, limbic: 0, brainstem: 0, cerebellum: 0 };
 
     const cog = modules.cognitive || {};
@@ -140,7 +146,8 @@ app.get('/api/state', async (req, res) => {
     try {
         const state = await systemCore.getState();
         const metrics = await systemCore.getMetrics();
-        const regions = computeActivatedRegions(state);
+        // FIX: análisis por defecto 'general'
+        const regions = computeActivatedRegions(state, 'general');
         res.json({ success: true, state, metrics, regions, timestamp: Date.now() });
     } catch (error) {
         console.error('❌ /api/state:', error.message);
@@ -460,6 +467,22 @@ app.post('/api/reset', requireAdmin, async (req, res) => {
     try {
         systemCore.reset();
         res.json({ success: true, message: 'Cerebro reiniciado correctamente' });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// FIX: nuevo endpoint admin para forzar la salida de emergencia cuando
+// el protocolo automático se queda atascado (12 reintentos fallidos).
+app.post('/api/emergency/reset', requireAdmin, async (req, res) => {
+    try {
+        const wasEmergency = systemCore.systemState.emergency;
+        systemCore.resetEmergency();
+        res.json({
+            success: true,
+            message: wasEmergency ? 'Emergencia reiniciada manualmente' : 'Sistema no estaba en emergencia',
+            emergency: systemCore.systemState.emergency
+        });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -820,7 +843,6 @@ async function shutdown(reason) {
     if (brainInterval) clearInterval(brainInterval);
 
     try {
-        // Forzar flush final de persistencia pendiente
         await systemCore.flushPendingPersistence();
     } catch (err) {
         console.error('Error flush final:', err.message);
