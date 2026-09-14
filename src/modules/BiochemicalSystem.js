@@ -314,13 +314,16 @@ export class BiochemicalSystem {
         return Math.max(0.1, na * en * cort * fat);
     }
 
+    /**
+     * Ritmo circadiano basado en hora real del día (0-24).
+     * Se usa systemCore.getCircadianHour() para no mezclar unidades.
+     */
     getCircadianPhase() {
-        const t = systemCore.systemTime || Date.now();
-        const hour = ((t % 86400) / 3600) % 24;
+        const hour = systemCore.getCircadianHour();
         return {
             isRestTime: hour >= 22 || hour < 6 || (hour >= 13 && hour < 15),
-            cortisol: hour >= 7 && hour <= 9 ? 10 : (hour >= 18 && hour <= 20 ? -5 : 0),
-            melatonin: hour >= 21 || hour < 6 ? 5 : 0
+            cortisol: (hour >= 7 && hour <= 9) ? 10 : ((hour >= 18 && hour <= 20) ? -5 : 0),
+            melatonin: (hour >= 21 || hour < 6) ? 5 : 0
         };
     }
 
