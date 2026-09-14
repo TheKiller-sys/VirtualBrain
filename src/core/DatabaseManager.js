@@ -42,7 +42,7 @@ export class DatabaseManager {
                 driver: sqlite3.Database
             });
 
-            // PRAGMAs de rendimiento (mmap reducido a 256MB, seguro para dev)
+            // PRAGMAs de rendimiento
             await this.db.exec('PRAGMA journal_mode = WAL');
             await this.db.exec('PRAGMA synchronous = NORMAL');
             await this.db.exec('PRAGMA cache_size = -200000');
@@ -68,6 +68,19 @@ export class DatabaseManager {
             return true;
         } catch (error) {
             console.error('❌ Error inicializando DB:', error.message);
+
+            // Cleanup: cerrar si quedó abierta a medias
+            try {
+                if (this.backupInterval) {
+                    clearInterval(this.backupInterval);
+                    this.backupInterval = null;
+                }
+                if (this.db) {
+                    try { await this.db.close(); } catch (_) { /* noop */ }
+                    this.db = null;
+                }
+            } catch (_) { /* noop */ }
+            this.isInitialized = false;
             return false;
         }
     }
@@ -82,7 +95,6 @@ export class DatabaseManager {
 
     /**
      * Backup sin bloquear: checkpoint WAL + copia de archivos.
-     * Mucho más rápido que VACUUM INTO y no bloquea el bucle de 30Hz.
      */
     async createBackup() {
         try {
@@ -92,12 +104,10 @@ export class DatabaseManager {
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
             const backupPath = path.join(backupDir, `cerebro_${timestamp}.db`);
 
-            // Forzar checkpoint para que el .db contenga todos los datos
             try { await this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch (_) { /* noop */ }
 
             fs.copyFileSync(this.dbPath, backupPath);
 
-            // Rotación: mantener solo los 10 más recientes
             const backups = fs.readdirSync(backupDir)
                 .filter(f => f.startsWith('cerebro_') && f.endsWith('.db'))
                 .sort();
@@ -1080,7 +1090,6 @@ export class DatabaseManager {
             'CREATE INDEX IF NOT EXISTS idx_temporal_cache_clave ON temporal_cache(clave)',
             'CREATE INDEX IF NOT EXISTS idx_config_param_clave ON config_parametros(clave)',
 
-            // Índices UNIQUE que faltaban para ON CONFLICT
             'CREATE UNIQUE INDEX IF NOT EXISTS idx_redes_sinap_unique ON redes_sinapticas(origen, destino)'
         ];
 
@@ -1182,10 +1191,6 @@ export class DatabaseManager {
         }
     }
 
-    /**
-     * Migración: recrea triggers que cambiaron de lógica.
-     * Ejecuta DROP + CREATE para asegurar la versión correcta en BDs existentes.
-     */
     async migrateTriggers() {
         try {
             await this.db.exec('DROP TRIGGER IF EXISTS trigger_evolucion_personalidad');
@@ -1335,7 +1340,6 @@ export class DatabaseManager {
 
     async _getTableColumns(table) {
         if (this._columnCache.has(table)) return this._columnCache.get(table);
-        // Validar nombre de tabla contra caracteres seguros (defensa adicional)
         if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(table)) {
             throw new Error(`Nombre de tabla inválido: ${table}`);
         }
@@ -1612,6 +1616,49 @@ export class DatabaseManager {
             tiempo_dormido: state.tiempoDormido ?? 0,
             ciclos_completos: state.ciclosCompletos ?? 0,
             despertares: state.despertares ?? 0
+        });
+    }
+
+    async saveDream(dream) {
+        return this.db.run(
+            `INSERT INTO sueno_sueños
+                (timestamp, contenido, tipo, emocion, tema, intensidad, vividness, duracion)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                Date.now(),
+                dream.contenido || dream.tema || '',
+                dream.tipo || 'narrativo',
+                dream.emocion || 'neutral',
+                dream.tema || '',
+                dream.intensidad ?? 0.5,
+                dream.vividness ?? 0.5,
+                dream.duracion ?? 10
+            ]
+        );
+    }
+
+    async saveMotorState(state) {
+        return this.saveState('motor_estados', {
+            coordinacion: state.coordinacion ?? 80,
+            fuerza: state.fuerza ?? 75,
+            velocidad: state.velocidad ?? 70,
+            precision: state.precision ?? 72,
+            agilidad: state.agilidad ?? 65,
+            equilibrio: state.equilibrio ?? 68,
+            resistencia: state.resistencia ?? 75,
+            fatiga: state.fatiga ?? 20,
+            recuperacion: state.recuperacion ?? 70,
+            control_voluntario: state.controlVoluntario ?? 78,
+            control_automatico: state.controlAutomatico ?? 82,
+            fluidez: state.fluidez ?? 74,
+            tension: state.tension ?? 25,
+            relajacion: state.relajacion ?? 60,
+            estabilidad: state.estabilidad ?? 76,
+            precision_fina: state.precisionFina ?? 70,
+            fuerza_explosiva: state.fuerzaExplosiva ?? 65,
+            tiempo_reaccion: state.tiempoReaccion ?? 60,
+            propiocepcion: state.propiocepcion ?? 65,
+            reflejos: state.reflejos ?? 75
         });
     }
 
@@ -2512,7 +2559,6 @@ export class DatabaseManager {
         if (this.backupInterval) clearInterval(this.backupInterval);
         if (this.db) {
             try {
-                // Checkpoint final antes de cerrar
                 await this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
             } catch (_) { /* noop */ }
             try { await this.db.close(); } catch (_) { /* noop */ }
