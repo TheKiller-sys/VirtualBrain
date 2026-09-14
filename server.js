@@ -8,6 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { systemCore } from './src/core/SystemCore.js';
 import { DatabaseManager } from './src/core/DatabaseManager.js';
+import { TUNING } from './src/config/tuning.js';
 
 // Importar TODOS los módulos (efecto secundario: se registran en systemCore)
 import './src/modules/EnvironmentSystem.js';
@@ -19,7 +20,6 @@ import './src/modules/MemorySystem.js';
 import './src/modules/MotivationSystem.js';
 import './src/modules/SleepSystem.js';
 import './src/modules/MotorSystem.js';
-import './src/modules/VisualSystem.js';
 import './src/modules/ControlSystem.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -31,7 +31,7 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || null;
 
 // ============ SEGURIDAD ============
 app.use(helmet({
-    contentSecurityPolicy: false, // El frontend usa inline script, se puede migrar luego
+    contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false
 }));
 app.use(compression());
@@ -50,13 +50,12 @@ app.use(cors({
     credentials: true
 }));
 
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: TUNING.chat.bodyLimit }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ============ RATE LIMITER (in-memory) ============
 function rateLimit({ windowMs = 60000, max = 120 } = {}) {
     const hits = new Map();
-    // Limpieza periódica para no crecer sin límite
     setInterval(() => {
         const now = Date.now();
         for (const [k, v] of hits) if (v.resetAt < now) hits.delete(k);
@@ -84,7 +83,7 @@ function rateLimit({ windowMs = 60000, max = 120 } = {}) {
 
 // ============ AUTORIZACIÓN ADMIN ============
 function requireAdmin(req, res, next) {
-    if (!ADMIN_TOKEN) return next(); // Sin token configurado → modo dev
+    if (!ADMIN_TOKEN) return next();
     const token = req.headers['x-admin-token'] || req.query.token;
     if (token !== ADMIN_TOKEN) {
         return res.status(401).json({ success: false, error: 'No autorizado' });
@@ -92,17 +91,17 @@ function requireAdmin(req, res, next) {
     next();
 }
 
-// Rate limit global suave
-app.use('/api/', rateLimit({ windowMs: 60_000, max: 240 }));
-// Rate limit estricto para chat (más costoso)
-const chatLimiter = rateLimit({ windowMs: 60_000, max: 30 });
+app.use('/api/', rateLimit(TUNING.rateLimit.global));
+const chatLimiter = rateLimit(TUNING.rateLimit.chat);
 
 // ============ RUTA PRINCIPAL ============
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// ============ CÁLCULO DE REGIONES CEREBRALES (única fuente de verdad) ============
+// ============ CÁLCULO DE REGIONES CEREBRALES ============
+// Fuente única de verdad. VisualSystem eliminado: la región occipital
+// se deriva ahora de procesos cognitivos/emocionales que la alimentan.
 function computeActivatedRegions(state, analysisType) {
     const modules = state.modules || {};
     const map = { frontal: 0, parietal: 0, temporal: 0, occipital: 0, limbic: 0, brainstem: 0, cerebellum: 0 };
@@ -116,8 +115,8 @@ function computeActivatedRegions(state, analysisType) {
     map.temporal = clamp01(((mem.episodica || 0) / 2000 + (mem.memoriaSemantica || 0) / 200) / 2);
     map.limbic = clamp01(((emo.alegria || 0) + (emo.miedo || 0) + (emo.ira || 0) + (emo.confianza || 0)) / 400);
 
-    const vis = modules.visual || {};
-    map.occipital = clamp01(vis.intensidadVisual || 0.5);
+    // Occipital: se alimenta de curiosidad + sorpresa (procesos "visuales" del cerebro)
+    map.occipital = clamp01(((cog.curiosidad || 0) + (emo.sorpresa || 0)) / 200 + 0.15);
 
     const bio = modules.biochemical || {};
     map.brainstem = clamp01(((bio.energia || 0) + (bio.oxigeno || 0)) / 200);
@@ -226,8 +225,11 @@ app.post('/api/situation', async (req, res) => {
 app.post('/api/chat', chatLimiter, async (req, res) => {
     try {
         const { message, context } = req.body;
-        if (!message || typeof message !== 'string' || message.length > 2000) {
-            return res.status(400).json({ success: false, error: 'Mensaje inválido (máx 2000 caracteres)' });
+        if (!message || typeof message !== 'string' || message.length > TUNING.chat.maxMessageLength) {
+            return res.status(400).json({
+                success: false,
+                error: `Mensaje inválido (máx ${TUNING.chat.maxMessageLength} caracteres)`
+            });
         }
 
         const state = await systemCore.getState();
@@ -291,7 +293,11 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
         res.json({ success: true, ...response });
     } catch (error) {
         console.error('❌ /api/chat:', error);
-        res.status(500).json({ success: false, error: error.message, message: 'Lo siento, no pude procesar tu mensaje.' });
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            message: 'Lo siento, no pude procesar tu mensaje.'
+        });
     }
 });
 
@@ -755,7 +761,7 @@ async function startBrain() {
         brainInterval = setInterval(() => {
             try {
                 const now = Date.now();
-                const deltaTime = Math.min((now - lastTime) / 1000, 0.5);
+                const deltaTime = Math.min((now - lastTime) / 1000, TUNING.deltaTimeCap);
                 lastTime = now;
                 systemCore.update(deltaTime);
                 errorCount = 0;
@@ -769,10 +775,10 @@ async function startBrain() {
                     errorCount = 0;
                 }
             }
-        }, 33);
+        }, Math.round(1000 / TUNING.updateHz));
         if (brainInterval.unref) brainInterval.unref();
 
-        console.log('🔄 Bucle cerebral activo (30Hz)');
+        console.log(`🔄 Bucle cerebral activo (${TUNING.updateHz}Hz)`);
     } catch (error) {
         console.error('❌ Error en startBrain:', error);
     }
@@ -814,6 +820,13 @@ async function shutdown(reason) {
     if (brainInterval) clearInterval(brainInterval);
 
     try {
+        // Forzar flush final de persistencia pendiente
+        await systemCore.flushPendingPersistence();
+    } catch (err) {
+        console.error('Error flush final:', err.message);
+    }
+
+    try {
         if (systemCore.database) await systemCore.database.close();
     } catch (err) {
         console.error('Error cerrando BD:', err.message);
@@ -828,13 +841,11 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 process.on('uncaughtException', (error) => {
     console.error('❌ Error no capturado:', error);
-    // Uncaught exception deja el proceso en estado indefinido → salir
     shutdown('uncaughtException').finally(() => process.exit(1));
 });
 
 process.on('unhandledRejection', (reason) => {
     console.error('❌ Promesa rechazada no manejada:', reason);
-    // No salimos, pero registramos con severidad
 });
 
 export default app;
