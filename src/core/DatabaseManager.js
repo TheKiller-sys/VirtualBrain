@@ -20,6 +20,11 @@ export class DatabaseManager {
         this.cache = new Map();
         this.cacheTimeout = 300000; // 5 min para históricos
         this._columnCache = new Map();
+
+        // FIX: cache separada para los COUNT(*) de getMetrics/getSystemMetrics.
+        // Sin esto, /api/state ejecuta 6 COUNT(*) cada 2.5s desde el frontend.
+        this._countCache = { data: null, at: 0, ttl: 5000 };
+
         this.metrics = {
             queries: 0,
             cacheHits: 0,
@@ -95,9 +100,19 @@ export class DatabaseManager {
 
     /**
      * Backup sin bloquear: checkpoint WAL + copia de archivos.
+     * FIX: se omite si la BD tiene muy pocos datos (<100 KB), para no
+     * acumular archivos vacíos en disco.
      */
     async createBackup() {
         try {
+            // Comprobar tamaño antes de gastar IO
+            if (fs.existsSync(this.dbPath)) {
+                const stat = fs.statSync(this.dbPath);
+                if (stat.size < 100 * 1024) {
+                    return null;
+                }
+            }
+
             const backupDir = path.join(path.dirname(this.dbPath), 'backups');
             if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
 
@@ -1194,22 +1209,33 @@ export class DatabaseManager {
     async migrateTriggers() {
         try {
             await this.db.exec('DROP TRIGGER IF EXISTS trigger_evolucion_personalidad');
+            // FIX: subir umbral a 0.02 y agrupar en un solo INSERT por
+            // evento usando SELECT ... UNION ALL. Evita que ruido numérico
+            // genere 5 filas por cada flush de personalidad.
             await this.db.exec(`
                 CREATE TRIGGER trigger_evolucion_personalidad
                 AFTER UPDATE ON personalidad_rasgos
-                WHEN ABS(NEW.apertura - OLD.apertura) > 0.005
-                   OR ABS(NEW.conciencia - OLD.conciencia) > 0.005
-                   OR ABS(NEW.extraversion - OLD.extraversion) > 0.005
-                   OR ABS(NEW.amabilidad - OLD.amabilidad) > 0.005
-                   OR ABS(NEW.neuroticismo - OLD.neuroticismo) > 0.005
+                WHEN ABS(NEW.apertura - OLD.apertura) > 0.02
+                   OR ABS(NEW.conciencia - OLD.conciencia) > 0.02
+                   OR ABS(NEW.extraversion - OLD.extraversion) > 0.02
+                   OR ABS(NEW.amabilidad - OLD.amabilidad) > 0.02
+                   OR ABS(NEW.neuroticismo - OLD.neuroticismo) > 0.02
                 BEGIN
                     INSERT INTO personalidad_evolucion (timestamp, rasgo, valor_anterior, valor_nuevo, delta, causa)
-                    VALUES
-                        (NEW.timestamp, 'apertura', OLD.apertura, NEW.apertura, NEW.apertura - OLD.apertura, 'cambio_natural'),
-                        (NEW.timestamp, 'conciencia', OLD.conciencia, NEW.conciencia, NEW.conciencia - OLD.conciencia, 'cambio_natural'),
-                        (NEW.timestamp, 'extraversion', OLD.extraversion, NEW.extraversion, NEW.extraversion - OLD.extraversion, 'cambio_natural'),
-                        (NEW.timestamp, 'amabilidad', OLD.amabilidad, NEW.amabilidad, NEW.amabilidad - OLD.amabilidad, 'cambio_natural'),
-                        (NEW.timestamp, 'neuroticismo', OLD.neuroticismo, NEW.neuroticismo, NEW.neuroticismo - OLD.neuroticismo, 'cambio_natural');
+                    SELECT NEW.timestamp, 'apertura', OLD.apertura, NEW.apertura, NEW.apertura - OLD.apertura, 'cambio_natural'
+                    WHERE ABS(NEW.apertura - OLD.apertura) > 0.02
+                    UNION ALL
+                    SELECT NEW.timestamp, 'conciencia', OLD.conciencia, NEW.conciencia, NEW.conciencia - OLD.conciencia, 'cambio_natural'
+                    WHERE ABS(NEW.conciencia - OLD.conciencia) > 0.02
+                    UNION ALL
+                    SELECT NEW.timestamp, 'extraversion', OLD.extraversion, NEW.extraversion, NEW.extraversion - OLD.extraversion, 'cambio_natural'
+                    WHERE ABS(NEW.extraversion - OLD.extraversion) > 0.02
+                    UNION ALL
+                    SELECT NEW.timestamp, 'amabilidad', OLD.amabilidad, NEW.amabilidad, NEW.amabilidad - OLD.amabilidad, 'cambio_natural'
+                    WHERE ABS(NEW.amabilidad - OLD.amabilidad) > 0.02
+                    UNION ALL
+                    SELECT NEW.timestamp, 'neuroticismo', OLD.neuroticismo, NEW.neuroticismo, NEW.neuroticismo - OLD.neuroticismo, 'cambio_natural'
+                    WHERE ABS(NEW.neuroticismo - OLD.neuroticismo) > 0.02;
                 END
             `);
         } catch (err) {
@@ -1354,6 +1380,8 @@ export class DatabaseManager {
     // ============================================================
 
     async saveState(table, data) {
+        // FIX: fallback a Date.now() si no viene timestamp. Todos los
+        // timestamps persistidos deben ser ms reales (Date.now()).
         const timestamp = data.timestamp || Date.now();
         const payload = { ...data, timestamp };
 
@@ -1377,6 +1405,8 @@ export class DatabaseManager {
             this.metrics.queries++;
             const dt = Date.now() - startTime;
             this.metrics.avgQueryTime = this.metrics.avgQueryTime * 0.9 + dt * 0.1;
+            // Invalidar cache de counts para que getMetrics devuelva datos frescos
+            this._countCache.at = 0;
             return result;
         } catch (error) {
             console.error(`❌ Error guardando en ${table}:`, error.message);
@@ -1397,7 +1427,7 @@ export class DatabaseManager {
         `;
         const now = Date.now();
         const result = await this.db.run(query, [
-            now,
+            memory.timestamp || now,
             memory.contenido || '',
             memory.contexto || '',
             memory.fuerza ?? 0.5,
@@ -1408,6 +1438,7 @@ export class DatabaseManager {
             now
         ]);
         this.cache.delete('memories');
+        this._countCache.at = 0;
         return result;
     }
 
@@ -1558,8 +1589,8 @@ export class DatabaseManager {
                  tiempo_procesamiento, emocion_dominante, resultado)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `;
-        return this.db.run(query, [
-            Date.now(),
+        const result = await this.db.run(query, [
+            decision.timestamp || Date.now(),
             typeof decision.decision === 'object' ? JSON.stringify(decision.decision) : String(decision.decision || ''),
             JSON.stringify(decision.opciones || []),
             JSON.stringify(decision.contexto || {}),
@@ -1568,6 +1599,8 @@ export class DatabaseManager {
             decision.emocion_dominante || decision.emocion || 'neutral',
             decision.resultado || 'pendiente'
         ]);
+        this._countCache.at = 0;
+        return result;
     }
 
     async saveThought(thought) {
@@ -1576,14 +1609,16 @@ export class DatabaseManager {
                 (timestamp, contenido, tipo, intensidad, emocion_asociada, nivel_consciencia)
             VALUES (?, ?, ?, ?, ?, ?)
         `;
-        return this.db.run(query, [
-            Date.now(),
+        const result = await this.db.run(query, [
+            thought.timestamp || Date.now(),
             thought.contenido || '',
             thought.tipo || 'consciente',
             thought.intensidad ?? 0.5,
             thought.emocion_asociada || 'neutral',
             thought.nivel_consciencia ?? 0.5
         ]);
+        this._countCache.at = 0;
+        return result;
     }
 
     async saveConnection(origin, destination, strength = 0.5, tipo = 'sináptica') {
@@ -1625,7 +1660,7 @@ export class DatabaseManager {
                 (timestamp, contenido, tipo, emocion, tema, intensidad, vividness, duracion)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [
-                Date.now(),
+                dream.timestamp || Date.now(),
                 dream.contenido || dream.tema || '',
                 dream.tipo || 'narrativo',
                 dream.emocion || 'neutral',
@@ -1706,7 +1741,7 @@ export class DatabaseManager {
                 (timestamp, tipo, duracion, exito, calidad, probabilidad, es_reflejo)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [
-                Date.now(),
+                action.timestamp || Date.now(),
                 action.tipo || 'desconocida',
                 action.duracion ?? 0,
                 action.exito ? 1 : 0,
@@ -1723,7 +1758,7 @@ export class DatabaseManager {
                 (timestamp, habilidad, nivel_anterior, nivel_nuevo, ganancia, metodo, exito)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [
-                Date.now(),
+                event.timestamp || Date.now(),
                 event.habilidad || 'general',
                 event.nivel_anterior ?? 0,
                 event.nivel_nuevo ?? 0,
@@ -2036,8 +2071,18 @@ export class DatabaseManager {
         );
     }
 
+    /**
+     * FIX: cache de 5s. /api/state llama a este método cada 2.5s desde el
+     * frontend → sin cache son 6 COUNT(*) cada 2.5s = ~2.4 queries/s solo
+     * contando filas.
+     */
     async getSystemMetrics() {
-        return {
+        const now = Date.now();
+        if (this._countCache.data && (now - this._countCache.at) < this._countCache.ttl) {
+            return this._countCache.data;
+        }
+
+        const data = {
             totalStates: (await this.db.get('SELECT COUNT(*) AS c FROM sistema_estados')).c,
             totalEmotions: (await this.db.get('SELECT COUNT(*) AS c FROM emociones_estados')).c,
             totalMemories: (await this.db.get('SELECT COUNT(*) AS c FROM memoria_episodica')).c,
@@ -2045,6 +2090,10 @@ export class DatabaseManager {
             totalThoughts: (await this.db.get('SELECT COUNT(*) AS c FROM cognitivo_pensamientos')).c,
             totalSkills: (await this.db.get('SELECT COUNT(*) AS c FROM memoria_procedural')).c
         };
+
+        this._countCache.data = data;
+        this._countCache.at = now;
+        return data;
     }
 
     async analyzeTrends(variable, period = 'hour') {
@@ -2418,9 +2467,17 @@ export class DatabaseManager {
             try {
                 const cols = await this.db.all(`PRAGMA table_info(${t.name})`);
                 const hasTimestamp = cols.some(c => c.name === 'timestamp');
-                const query = hasTimestamp
-                    ? `SELECT * FROM ${t.name} ORDER BY timestamp DESC LIMIT ?`
-                    : `SELECT * FROM ${t.name} LIMIT ?`;
+                const hasId = cols.some(c => c.name === 'id');
+
+                // FIX: ORDER BY determinista para tablas sin timestamp
+                let query;
+                if (hasTimestamp) {
+                    query = `SELECT * FROM ${t.name} ORDER BY timestamp DESC LIMIT ?`;
+                } else if (hasId) {
+                    query = `SELECT * FROM ${t.name} ORDER BY id DESC LIMIT ?`;
+                } else {
+                    query = `SELECT * FROM ${t.name} LIMIT ?`;
+                }
                 data.tables[t.name] = await this.db.all(query, limit);
             } catch (err) {
                 data.tables[t.name] = { error: err.message };
@@ -2470,6 +2527,7 @@ export class DatabaseManager {
         await this.db.exec('VACUUM');
         this.cache.clear();
         this._columnCache.clear();
+        this._countCache = { data: null, at: 0, ttl: 5000 };
         console.log('✅ Optimización completada');
     }
 
@@ -2531,6 +2589,7 @@ export class DatabaseManager {
         }
         await this.db.exec('VACUUM');
         this.cache.clear();
+        this._countCache = { data: null, at: 0, ttl: 5000 };
         console.log('🗄️ Limpieza completada');
     }
 
