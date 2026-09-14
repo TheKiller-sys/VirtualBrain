@@ -103,7 +103,6 @@ export class ControlSystem {
     }
 
     update(input, deltaTime) {
-        // El control no tiene estado propio que actualizar en cada tick
         return this.getState();
     }
 
@@ -112,7 +111,7 @@ export class ControlSystem {
         if (!c) return;
         c.funcion();
         this.lastControlAction = controlId;
-        this.actionHistory.push({ control: controlId, timestamp: systemCore.systemTime || Date.now() });
+        this.actionHistory.push({ control: controlId, timestamp: Date.now() });
         if (this.actionHistory.length > 50) this.actionHistory.shift();
     }
 
