@@ -11,7 +11,6 @@ export class PersonalitySystem {
         this.personalityDevelopment = 0;
         this.lastUpdateTime = 0;
         this.config = {};
-        this._persistCounter = 0;
     }
 
     async initialize(characterConfig) {
@@ -58,7 +57,7 @@ export class PersonalitySystem {
             proposito: 0.4
         };
         this.personalityDevelopment = 0;
-        this.lastUpdateTime = systemCore.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime;
     }
 
     setupPersonalityMatrix() {
@@ -127,7 +126,7 @@ export class PersonalitySystem {
     }
 
     update(input, deltaTime) {
-        this.lastUpdateTime = systemCore.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime;
         if (!input || !input.biochemical || !input.emotional) return this.getState();
 
         this.applyEmotionalInfluences(input.emotional, deltaTime);
@@ -136,26 +135,19 @@ export class PersonalitySystem {
         this.updatePersonalityMatrix();
         this.applyHomeostasis();
 
-        this._persistCounter += deltaTime;
-        if (this._persistCounter > 30) {
-            this._persistCounter = 0;
-            this.persistToDatabase();
-        }
+        systemCore.queuePersistence('personality', () => {
+            if (systemCore.database?.isInitialized) {
+                return systemCore.database.savePersonality({
+                    openness: this.traits.openness,
+                    conscientiousness: this.traits.conscientiousness,
+                    extraversion: this.traits.extraversion,
+                    agreeableness: this.traits.agreeableness,
+                    neuroticism: this.traits.neuroticism
+                });
+            }
+        });
 
         return this.getState();
-    }
-
-    async persistToDatabase() {
-        if (!systemCore.database?.isInitialized) return;
-        try {
-            await systemCore.database.savePersonality({
-                openness: this.traits.openness,
-                conscientiousness: this.traits.conscientiousness,
-                extraversion: this.traits.extraversion,
-                agreeableness: this.traits.agreeableness,
-                neuroticism: this.traits.neuroticism
-            });
-        } catch (_) { /* noop */ }
     }
 
     applyEmotionalInfluences(emotionalState, deltaTime) {
