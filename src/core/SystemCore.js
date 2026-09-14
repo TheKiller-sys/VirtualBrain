@@ -18,8 +18,10 @@ export class SystemCore {
 
         // Buffer centralizado de persistencia
         this._pendingPersists = new Map();
-        this._lastPersistFlush = 0;
-        this._persistFlushInterval = TUNING.persistFlushInterval;
+        // FIX: usar Date.now() en lugar de acumular deltaTime (que está capeado
+        // y puede retrasar el flush indefinidamente si el bucle va lento).
+        this._lastPersistFlushAt = Date.now();
+        this._persistFlushIntervalMs = TUNING.persistFlushInterval * 1000;
 
         this.statistics = {
             stabilityHistory: [],
@@ -110,8 +112,12 @@ export class SystemCore {
 
     /**
      * Los módulos encolan una closure. SystemCore la ejecuta cada
-     * `_persistFlushInterval` segundos. Si el mismo módulo encola dos veces
+     * `_persistFlushIntervalMs`. Si el mismo módulo encola dos veces
      * antes del flush, la última sobreescribe (debounce natural).
+     *
+     * NOTA: si necesitas persistir LISTAS (varios thoughts/decisions),
+     * no uses esta API con el mismo key dos veces — usa un buffer interno
+     * en el módulo y una sola closure que lo vacíe.
      */
     queuePersistence(moduleName, fn) {
         if (typeof fn !== 'function') return;
@@ -135,8 +141,7 @@ export class SystemCore {
     // ==================== UTILIDADES DE TIEMPO ====================
 
     /**
-     * Hora circadiana real (0–24) basada en reloj UTC. Independiente del
-     * tiempo interno de simulación (systemTime).
+     * Hora circadiana real (0–24) basada en reloj UTC.
      */
     getCircadianHour() {
         const now = Date.now();
@@ -199,6 +204,7 @@ export class SystemCore {
 
             this.setupEventListeners();
             this.isRunning = true;
+            this._lastPersistFlushAt = Date.now();
             this.logSystem('Sistema nervioso central V4 inicializado completamente');
 
             this.dispatchEvent('system_initialized', {
@@ -265,16 +271,19 @@ export class SystemCore {
             this.updateConsciousness(results);
             this.recordCycle(results);
 
-            // Flush periódico de persistencia (centralizado)
-            this._lastPersistFlush += deltaTime;
-            if (this._lastPersistFlush >= this._persistFlushInterval) {
-                this._lastPersistFlush = 0;
+            // FIX: flush por reloj real, no por deltaTime capeado
+            const now = Date.now();
+            if (now - this._lastPersistFlushAt >= this._persistFlushIntervalMs) {
+                this._lastPersistFlushAt = now;
                 this.flushPendingPersistence().catch(() => { /* silencioso */ });
             }
         } catch (error) {
+            // FIX: un error de JS en un ciclo NO debe activar el protocolo de
+            // emergencia (que está pensado para estados fisiológicos críticos).
+            // Solo logueamos y dejamos que el sistema siga. La emergencia la
+            // dispara checkSystemHealth() cuando los valores están fuera de rango.
             this.logSystem(`Error en ciclo de actualización: ${error.message}`, 'error');
-            console.error(error.stack);
-            this.triggerEmergencyProtocol();
+            if (this.cycleCount % 100 === 0) console.error(error.stack);
         }
     }
 
@@ -577,9 +586,9 @@ export class SystemCore {
         this._emergencyRetries++;
 
         if (this._emergencyRetries <= 12) {
-            setTimeout(() => this.resolveEmergency(), 5000);
+            setTimeout(() => this.resolveEmergency(), 5000).unref?.();
         } else {
-            this.logSystem('⚠️ Emergencia persiste tras múltiples reintentos. Requiere intervención manual.', 'error');
+            this.logSystem('⚠️ Emergencia persiste tras múltiples reintentos. Requiere intervención manual (POST /api/emergency/reset).', 'error');
             this.dispatchEvent('emergency_stuck', { time: this.systemTime });
         }
     }
@@ -596,8 +605,21 @@ export class SystemCore {
             this.logSystem('✅ Emergencia resuelta', 'system');
             this.dispatchEvent('emergency_resolved', { time: this.systemTime });
         } else {
-            setTimeout(() => this.resolveEmergency(), 5000);
+            setTimeout(() => this.resolveEmergency(), 5000).unref?.();
         }
+    }
+
+    /**
+     * FIX: reset manual de emergencia. Útil cuando el protocolo automático
+     * se queda atascado (>12 reintentos) o cuando un admin quiere forzar
+     * la salida sin reiniciar todo el sistema.
+     */
+    resetEmergency() {
+        this.systemState.emergency = false;
+        this._emergencyRetries = 0;
+        this.alerts.activeAlerts = [];
+        this.logSystem('🔓 Emergencia reiniciada manualmente', 'system');
+        this.dispatchEvent('emergency_reset', { time: this.systemTime });
     }
 
     // ==================== SITUACIONES / CONFIG ====================
@@ -669,7 +691,7 @@ export class SystemCore {
         this.alerts.activeAlerts = [];
         this._stateCache = null;
         this._pendingPersists.clear();
-        this._lastPersistFlush = 0;
+        this._lastPersistFlushAt = Date.now();
         this.statistics = {
             stabilityHistory: [],
             performanceHistory: [],
