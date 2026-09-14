@@ -40,7 +40,8 @@ export class PersonalitySystem {
             agreeableness: base.agreeableness,
             neuroticism: base.neuroticism
         };
-        this.updateSubTraits(0);
+        // FIX: la función ignora el argumento, se llama sin él
+        this.updateSubTraits();
     }
 
     initializeState() {
@@ -61,9 +62,10 @@ export class PersonalitySystem {
     }
 
     setupPersonalityMatrix() {
-        this.updatePersonalityMatrix(0);
+        this.updatePersonalityMatrix();
     }
 
+    // FIX: firma sin argumento (antes recibía 0 y lo ignoraba)
     updateSubTraits() {
         const t = this.traits;
         this.subTraits = {
@@ -232,6 +234,10 @@ export class PersonalitySystem {
         if (mod.extraversion !== undefined) this.traits.extraversion = this.clamp(this.traits.extraversion + mod.extraversion, 0.1, 0.9);
         if (mod.amabilidad !== undefined) this.traits.agreeableness = this.clamp(this.traits.agreeableness + mod.amabilidad, 0.1, 0.9);
         if (mod.neuroticismo !== undefined) this.traits.neuroticism = this.clamp(this.traits.neuroticism + mod.neuroticismo, 0.1, 0.9);
+        if (mod.creatividad !== undefined) {
+            // Compatibilidad hacia atrás: algunos llamadores pasan {creatividad: x}
+            this.traits.openness = this.clamp(this.traits.openness + mod.creatividad * 0.3, 0.1, 0.9);
+        }
         this.updateSubTraits();
         this.updatePersonalityMatrix();
     }
