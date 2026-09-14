@@ -10,7 +10,6 @@ export class EnvironmentSystem {
         this.lastUpdateTime = 0;
         this.environmentHistory = [];
         this.currentPattern = null;
-        this._persistCounter = 0;
     }
 
     async initialize(characterConfig) {
@@ -43,7 +42,7 @@ export class EnvironmentSystem {
         };
         this.environmentHistory = [];
         this.currentPattern = null;
-        this.lastUpdateTime = systemCore.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime;
     }
 
     setupEnvironmentalPatterns() {
@@ -67,19 +66,17 @@ export class EnvironmentSystem {
     }
 
     update(input, deltaTime) {
-        this.lastUpdateTime = systemCore.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime;
         this.applyNaturalChanges(deltaTime);
         this.processEnvironmentalPatterns(deltaTime);
         this.recordHistory();
-        this._persistCounter += deltaTime;
-        if (this._persistCounter > 30) { this._persistCounter = 0; /* sin tabla específica en BD */ }
         return this.getState();
     }
 
     applyNaturalChanges(dt) {
         const t = this.lastUpdateTime;
         this.state.oxigeno += Math.sin(t * 0.01) * 0.08 * dt;
-        const hour = (t % 86400) / 3600;
+        const hour = systemCore.getCircadianHour();
         const targetTemp = 20 + 5 * Math.sin((hour - 6) * 0.2618);
         this.state.temperatura += (targetTemp - this.state.temperatura) * 0.008 * dt;
         this.state.toxinas *= (1 - 0.0008 * dt);
@@ -93,7 +90,6 @@ export class EnvironmentSystem {
         this.state.lluvia += (Math.sin(t * 0.003) * 0.5 + 0.5) * 0.01 * dt;
         this.state.nubosidad = 30 + 30 * Math.sin(t * 0.004);
 
-        // Clamps
         this.state.oxigeno = this.clamp(this.state.oxigeno, 0, 100);
         this.state.temperatura = this.clamp(this.state.temperatura, -10, 50);
         this.state.toxinas = this.clamp(this.state.toxinas, 0, 100);
