@@ -10,7 +10,6 @@ export class MotivationSystem {
         this.motivationHistory = [];
         this.eventListeners = [];
         this.lastUpdateTime = 0;
-        this._persistCounter = 0;
     }
 
     async initialize(characterConfig) {
@@ -47,7 +46,7 @@ export class MotivationSystem {
             nivelActivacion: 0.5, focoMotivacional: 0.6, frustracion: 0.2, esperanza: 0.6, determinacion: 0.5
         };
         this.motivationHistory = [];
-        this.lastUpdateTime = systemCore.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime;
     }
 
     setupGoalSystem() {
@@ -69,7 +68,7 @@ export class MotivationSystem {
     }
 
     update(input, deltaTime) {
-        this.lastUpdateTime = systemCore.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime;
         if (!input || !input.biochemical || !input.emotional) return this.getState();
 
         this.updateDrives(input, deltaTime);
@@ -79,19 +78,13 @@ export class MotivationSystem {
         this.applyHomeostasis(deltaTime);
         this.recordHistory();
 
-        this._persistCounter += deltaTime;
-        if (this._persistCounter > 15) {
-            this._persistCounter = 0;
-            this.persistToDatabase();
-        }
-        return this.getState();
-    }
+        systemCore.queuePersistence('motivation', () => {
+            if (systemCore.database?.isInitialized) {
+                return systemCore.database.saveMotivationState(this.state);
+            }
+        });
 
-    async persistToDatabase() {
-        if (!systemCore.database?.isInitialized) return;
-        try {
-            await systemCore.database.saveMotivationState(this.state);
-        } catch (_) { /* noop */ }
+        return this.getState();
     }
 
     updateDrives(input, dt) {
