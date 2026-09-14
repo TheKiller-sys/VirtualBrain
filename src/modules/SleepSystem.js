@@ -11,7 +11,6 @@ export class SleepSystem {
         this.lastUpdateTime = 0;
         this.dreamGenerationTimer = 0;
         this.cycleCounter = 0;
-        this._persistCounter = 0;
     }
 
     async initialize(characterConfig) {
@@ -39,7 +38,7 @@ export class SleepSystem {
         };
         this.sleepHistory = [];
         this.dreamLog = [];
-        this.lastUpdateTime = systemCore.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime;
         this.dreamGenerationTimer = 0;
         this.cycleCounter = 0;
     }
@@ -53,7 +52,7 @@ export class SleepSystem {
     }
 
     update(input, deltaTime) {
-        this.lastUpdateTime = systemCore.systemTime || Date.now();
+        this.lastUpdateTime = systemCore.systemTime;
         if (!input || !input.biochemical) return this.getState();
 
         this.calculateSleepPressure(input.biochemical, deltaTime);
@@ -62,19 +61,13 @@ export class SleepSystem {
         this.processDreams(deltaTime);
         this.recordHistory();
 
-        this._persistCounter += deltaTime;
-        if (this._persistCounter > 30) {
-            this._persistCounter = 0;
-            this.persistToDatabase();
-        }
-        return this.getState();
-    }
+        systemCore.queuePersistence('sleep', () => {
+            if (systemCore.database?.isInitialized) {
+                return systemCore.database.saveSleepState(this.state);
+            }
+        });
 
-    async persistToDatabase() {
-        if (!systemCore.database?.isInitialized) return;
-        try {
-            await systemCore.database.saveSleepState(this.state);
-        } catch (_) { /* noop */ }
+        return this.getState();
     }
 
     calculateSleepPressure(bio, dt) {
@@ -89,7 +82,6 @@ export class SleepSystem {
 
     processSleepState(input, dt) {
         const bio = input.biochemical || {};
-        // Fase circadiana normalizada: 0-1 (0 = medianoche, 0.5 = mediodía)
         const cp = systemCore.getCircadianHour() / 24;
         const wakeThreshold = 0.7 - ((bio.cortisol || 0) / 100) * 0.2;
         const sleepThreshold = 0.3 + ((bio.serotonina || 50) / 100) * 0.2;
@@ -164,7 +156,7 @@ export class SleepSystem {
             this.state.calidadSueño = this.calculateSleepQuality();
             this.state.eficienciaSueño = this.calculateSleepEfficiency();
             this.state.despertares++;
-            this.state.ultimoDespertar = systemCore.systemTime || Date.now();
+            this.state.ultimoDespertar = Date.now();
             this.emitEvent('woke_up', { quality: this.state.calidadSueño });
         }
         if (ns === 'sueño_rem') { this.state.sueñosActivos = true; this.emitEvent('rem_started', {}); }
@@ -204,20 +196,19 @@ export class SleepSystem {
         }
     }
 
+    /**
+     * FIX: usar db.saveDream() en vez de acceder a db.db.run() directamente.
+     */
     processDreams(dt) {
         if (!this.state.sueñosActivos) return;
         if (Math.random() < 0.008 * dt) {
             const dream = this.generateDream();
-            this.dreamLog.push({ ...dream, timestamp: systemCore.systemTime || Date.now() });
+            this.dreamLog.push({ ...dream, timestamp: Date.now() });
             if (this.dreamLog.length > 50) this.dreamLog.shift();
             this.emitEvent('dream_occurred', dream);
 
             if (systemCore.database?.isInitialized) {
-                systemCore.database.db.run(
-                    `INSERT INTO sueno_sueños (timestamp, contenido, tipo, emocion, tema, intensidad, vividness, duracion)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                    [Date.now(), dream.tema || '', dream.tipo, dream.emocion, dream.tema, dream.intensidad, dream.vividness, dream.duracion]
-                ).catch(() => {});
+                systemCore.database.saveDream(dream).catch(() => {});
             }
         }
     }
@@ -238,7 +229,7 @@ export class SleepSystem {
 
     recordHistory() {
         this.sleepHistory.push({
-            timestamp: this.lastUpdateTime,
+            timestamp: Date.now(),
             estado: this.state.estado,
             presionSueño: this.state.presionSueño,
             profundidad: this.state.profundidad,
