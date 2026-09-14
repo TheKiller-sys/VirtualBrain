@@ -196,9 +196,12 @@ export class EmotionalSystem {
         }
     }
 
+    /**
+     * Efectos circadianos basados en la hora real del día (0-24).
+     * Antes usaba systemCore.systemTime % period, que no representa el día real.
+     */
     applyCircadianEffects(dt) {
-        const t = (systemCore.systemTime || Date.now()) % this.circadianRhythm.period;
-        const hour = (t / 3600) % 24;
+        const hour = systemCore.getCircadianHour();
         let pe;
         if (hour < 6) pe = this.circadianRhythm.emotionalVariation.night;
         else if (hour < 12) pe = this.circadianRhythm.emotionalVariation.morning;
@@ -263,13 +266,11 @@ export class EmotionalSystem {
             this.state[em] += diff * rate;
         });
 
-        // Regulación cognitiva
         ['miedo', 'ira', 'tristeza', 'ansiedad', 'culpa', 'frustracion'].forEach(em => {
             if (this.state[em] > 30) this.state[em] -= 0.04 * reg * dt * (this.state[em] / 100);
         });
         this.state.estabilidad += 0.08 * reg * dt;
 
-        // Regulación social
         const social = this.emotionalProfile?.empathyBaseline || 1.0;
         if (this.state.conexion > 50) {
             this.state.alegria += 0.08 * social * dt;
