@@ -72,11 +72,22 @@ export const TUNING = {
     // ==================== REGIONES CEREBRALES ====================
     // Fuente única de verdad para /api/state y /api/chat.
     // Cada entrada describe cómo derivar una región a partir de módulos.
+    //
+    // FIX V4.2.1:
+    //  - temporal: `divisor` movido DENTRO de `memory` para que
+    //    computeRegion() realmente lo lea y normalice la suma.
+    //  - boost ampliado para cubrir TODOS los tipos devueltos por
+    //    intentToRegion (antes la mitad de los intents no activaban nada).
     regions: {
         frontal: {
             label: 'Frontal · Decisión',
             weights: { cognitive: ['razonamiento', 'tomaDecisiones', 'planificacion'], divisor: 300 },
-            boost: { decision: 0.35, filosofia: 0.35 }
+            boost: {
+                decision: 0.35,
+                filosofia: 0.35,
+                trabajo: 0.20,
+                consejo: 0.25
+            }
         },
         parietal: {
             label: 'Parietal · Atención',
@@ -87,18 +98,26 @@ export const TUNING = {
             label: 'Temporal · Memoria',
             weights: {
                 memory: {
-                    // Ahora usa counts reales + ratios, no mezcla valores
                     episodica: { field: 'episodica', scale: 1500 },
-                    semantica: { field: 'semantic', scale: 400 }
-                },
-                divisor: 2
+                    semantica: { field: 'semantic', scale: 400 },
+                    // divisor DENTRO de memory → computeRegion lo lee como subDivisor
+                    divisor: 2
+                }
             },
             boost: { social: 0.25 }
         },
         limbic: {
             label: 'Límbico · Emoción',
             weights: { emotional: ['alegria', 'miedo', 'ira', 'confianza'], divisor: 400 },
-            boost: { peligro: 0.3, miedo: 0.3, alegria: 0.2 }
+            boost: {
+                peligro: 0.30,
+                miedo: 0.30,
+                alegria: 0.20,
+                tristeza: 0.25,
+                ira: 0.25,
+                ansiedad: 0.30,
+                ayuda: 0.20
+            }
         },
         occipital: {
             label: 'Occipital · Visual',
@@ -109,13 +128,65 @@ export const TUNING = {
         brainstem: {
             label: 'Tallo · Homeostasis',
             weights: { biochemical: ['oxigeno', 'energia'], divisor: 200 },
-            boost: {}
+            boost: {
+                cansancio: 0.20,
+                salud: 0.20
+            }
         },
         cerebellum: {
             label: 'Cerebelo · Motor',
             weights: { motor: ['coordinacion', 'precision'], divisor: 200 },
             boost: {}
         }
+    },
+
+    // ==================== MAPEO INTENT → REGIÓN ====================
+    // Fuente única de verdad. server.js consulta este mapa para saber qué
+    // "tipo de análisis" pasarle a computeActivatedRegions().
+    // Cada valor DEBE existir como clave en regions.*.boost.
+    intentToRegion: {
+        // --- Sociales ---
+        saludo: 'social',
+        despedida: 'social',
+        agradecimiento: 'social',
+        disculpa: 'social',
+
+        // --- Preguntas sobre el cerebro ---
+        pregunta_estado: 'general',
+        pregunta_identidad: 'general',
+        pregunta_capacidad: 'general',
+        pregunta_opinion: 'filosofia',
+        pregunta_generica: 'general',
+
+        // --- Estados emocionales ---
+        expresion_tristeza: 'tristeza',
+        expresion_ansiedad: 'ansiedad',
+        expresion_ira: 'ira',
+        expresion_alegria: 'alegria',
+        expresion_cansancio: 'cansancio',
+        expresion_confusion: 'general',
+
+        // --- Solicitudes ---
+        solicitud_ayuda: 'ayuda',
+        solicitud_consejo: 'consejo',
+        peticion_escucha: 'general',
+
+        // --- Temas ---
+        tema_relaciones: 'social',
+        tema_trabajo: 'trabajo',
+        tema_estudio: 'general',
+        tema_salud: 'salud',
+        tema_muerte: 'filosofia',
+
+        // --- Filosofía / profundas ---
+        filosofia: 'filosofia',
+        decision: 'decision',
+
+        // --- Peligro / urgente ---
+        peligro: 'peligro',
+
+        // --- Fallback ---
+        charla: 'general'
     },
 
     // ==================== SITUACIONES ====================
@@ -138,7 +209,8 @@ export const TUNING = {
     validation: {
         // Si NODE_ENV=production y no hay ADMIN_TOKEN, se rechaza el arranque.
         requireAdminTokenInProduction: true,
-        // Si NODE_ENV=production y CORS_ORIGIN vacío, solo permite mismo origen.
+        // Si NODE_ENV=production y CORS_ORIGIN vacío, se bloquea cross-origin
+        // (same-origin sigue funcionando). Ver server.js para el detalle.
         requireCorsOriginInProduction: false
     }
 };
@@ -155,4 +227,4 @@ if (process.env.NODE_ENV !== 'production') {
         return Object.freeze(obj);
     };
     deepFreeze(TUNING);
-}
+                 }
