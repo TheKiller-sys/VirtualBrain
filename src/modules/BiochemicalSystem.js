@@ -1,4 +1,13 @@
 // src/modules/BiochemicalSystem.js
+// V4.1
+//
+// CAMBIOS CLAVE V4.1:
+//  - updateNeuroendocrineSystem sin doble término de decay
+//  - handleSituation con clamp inmediato
+//  - emergencyProtocol reversible (restaura metabolicRates)
+//  - persistencia con sim_time
+//  - eventos con severity
+
 import { systemCore } from '../core/SystemCore.js';
 
 export class BiochemicalSystem {
@@ -6,6 +15,7 @@ export class BiochemicalSystem {
         this.state = {};
         this.config = {};
         this.metabolicRates = {};
+        this._savedMetabolicRates = null;
         this.neurotransmitterBaselines = {};
         this.eventListeners = [];
         this.homeostasisBuffer = {};
@@ -13,7 +23,11 @@ export class BiochemicalSystem {
         this.energyHistory = [];
         this.stressHistory = [];
         this.genotypeConfig = {};
-        this.homeostasisTargets = {};
+
+        // Throttle de historial
+        this._lastHistoryAt = -Infinity;
+        this._historyIntervalSec = 5;
+        this._criticalCooldown = 0;
     }
 
     async initialize(characterConfig) {
@@ -21,7 +35,7 @@ export class BiochemicalSystem {
         this.setupGenotype(this.config.genotipo || 'humano');
         this.initializeState();
         this.setupHomeostasisBuffer();
-        systemCore.logSystem('Sistema bioquímico V4 inicializado');
+        systemCore.logSystem('Sistema bioquímico V4.1 inicializado');
     }
 
     setupGenotype(genotipo) {
@@ -48,6 +62,7 @@ export class BiochemicalSystem {
             recoveryRate: 0.15 * this.genotypeConfig.recoveryRate,
             neurotransmitterDecay: 0.08 * (1 / this.genotypeConfig.neurotransmitterStability)
         };
+        this._savedMetabolicRates = { ...this.metabolicRates };
     }
 
     setupNeurotransmitterBaselines() {
@@ -69,39 +84,25 @@ export class BiochemicalSystem {
 
     initializeState() {
         this.state = {
-            oxigeno: 100,
-            dioxidoCarbono: 0,
-            monoxidoCarbono: 0,
-            oxidoNitrico: 5,
-            energia: 100,
-            toxicidad: 0,
-            temperatura: 37.0,
-            ph: 7.4,
-            glucosa: 80,
-            lactato: 10,
-            creatinina: 1,
-            urea: 20,
-            estadoHidratacion: 80,
-            recuperacion: 75,
-            fatigaAcumulada: 0,
+            oxigeno: 100, dioxidoCarbono: 0, monoxidoCarbono: 0, oxidoNitrico: 5,
+            energia: 100, toxicidad: 0, temperatura: 37.0, ph: 7.4,
+            glucosa: 80, lactato: 10, creatinina: 1, urea: 20,
+            estadoHidratacion: 80, recuperacion: 75, fatigaAcumulada: 0,
             ...this.neurotransmitterBaselines,
             hormonaCrecimiento: 25,
             testosterona: this.config?.genero === 'masculino' ? 60 : 20,
             estradiol: this.config?.genero === 'femenino' ? 40 : 10,
-            insulina: 15,
-            glucagon: 10,
-            leptina: 20,
-            grelina: 20,
+            insulina: 15, glucagon: 10, leptina: 20, grelina: 20,
             presionArterial: { sistolica: 120, diastolica: 80 },
-            frecuenciaCardiaca: 72,
-            saturacionOxigeno: 98,
-            ritmoRespiratorio: 16,
-            variabilidadCardiaca: 50,
+            frecuenciaCardiaca: 72, saturacionOxigeno: 98,
+            ritmoRespiratorio: 16, variabilidadCardiaca: 50,
             homeostasisDelta: 0
         };
         this.homeostasisTargets = { ...this.state };
         this.energyHistory = [];
         this.stressHistory = [];
+        this._lastHistoryAt = -Infinity;
+        this._criticalCooldown = 0;
     }
 
     setupHomeostasisBuffer() {
@@ -109,38 +110,52 @@ export class BiochemicalSystem {
     }
 
     onEvent(cb) { this.eventListeners.push(cb); }
+
     emitEvent(type, data) {
-        this.eventListeners.forEach(cb => {
-            try { cb({ type, data, module: 'biochemical' }); }
+        const payload = { type, data, module: 'biochemical', simTime: systemCore.systemTime };
+        for (const cb of this.eventListeners) {
+            try { cb(payload); }
             catch (err) { console.error('❌ bio listener:', err); }
-        });
+        }
     }
 
     update(input, deltaTime) {
         this.lastUpdateTime = systemCore.systemTime;
         if (!input) return this.getState();
 
-        this.processEnvironmentalExchange(input.environmental, deltaTime);
+        this.processEnvironmentalExchange(input.environmental || input.environment, deltaTime);
         this.updateBasalMetabolism(deltaTime);
         this.updateNeuroendocrineSystem(deltaTime);
         this.applyHomeostasis(deltaTime);
         this.updateVitalSigns();
-        this.checkCriticalConditions();
+        this._applyHomeostasisClamp();
 
-        // Persistencia vía buffer centralizado (SystemCore hace flush cada N segundos)
         systemCore.queuePersistence('biochemical', () => {
             if (systemCore.database?.isInitialized) {
-                return systemCore.database.saveBiochemicalState(this.state);
+                return systemCore.database.saveBiochemicalState({
+                    ...this.state,
+                    sim_time: systemCore.systemTime
+                });
             }
         });
 
         return this.getState();
     }
 
+    updateSlow(input, slowDelta) {
+        this.checkCriticalConditions();
+        this._criticalCooldown = Math.max(0, this._criticalCooldown - slowDelta);
+
+        if (this.lastUpdateTime - this._lastHistoryAt >= this._historyIntervalSec) {
+            this._lastHistoryAt = this.lastUpdateTime;
+            this._trimHistory();
+        }
+    }
+
     processEnvironmentalExchange(env, dt) {
         if (!env) return;
 
-        const o2Diff = (env.oxigeno - this.state.oxigeno) * 0.02 * dt;
+        const o2Diff = ((env.oxigeno ?? 80) - this.state.oxigeno) * 0.02 * dt;
         this.state.oxigeno += o2Diff * this.genotypeConfig.oxygenEfficiency;
 
         if (env.toxinas) {
@@ -153,22 +168,12 @@ export class BiochemicalSystem {
         if (env.peligro) {
             this.state.cortisol += env.peligro * 0.1 * dt * (1 / this.genotypeConfig.stressResistance);
             this.state.adrenalina += env.peligro * 0.08 * dt;
-            this.stressHistory.push({ time: this.lastUpdateTime, level: this.state.cortisol });
-            if (this.stressHistory.length > 200) this.stressHistory.shift();
         }
         if (env.recompensas) {
             this.state.dopamina += env.recompensas * 0.05 * dt;
             this.state.endorfinas += env.recompensas * 0.03 * dt;
             this.state.oxitocina += env.recompensas * 0.02 * dt;
         }
-
-        this.state.oxigeno = this.clamp(this.state.oxigeno, 0, 100);
-        this.state.toxicidad = this.clamp(this.state.toxicidad, 0, 100);
-        this.state.dopamina = this.clamp(this.state.dopamina, 0, 100);
-        this.state.endorfinas = this.clamp(this.state.endorfinas, 0, 100);
-        this.state.oxitocina = this.clamp(this.state.oxitocina, 0, 100);
-        this.state.cortisol = this.clamp(this.state.cortisol, 0, 100);
-        this.state.adrenalina = this.clamp(this.state.adrenalina, 0, 100);
     }
 
     updateBasalMetabolism(dt) {
@@ -180,13 +185,12 @@ export class BiochemicalSystem {
         this.state.dioxidoCarbono += rates.co2Production * activity * dt;
         this.state.energia -= rates.energyConsumption * activity * dt * (1 + this.state.fatigaAcumulada / 200);
 
-        this.energyHistory.push({ time: this.lastUpdateTime, level: this.state.energia });
-        if (this.energyHistory.length > 200) this.energyHistory.shift();
-
         this.state.toxicidad -= rates.toxinElimination * dt;
         this.state.monoxidoCarbono *= (1 - rates.toxinElimination * dt);
 
-        if (this.state.energia < 50) this.state.energia += rates.recoveryRate * recoveryMod * dt * 2;
+        if (this.state.energia < 50) {
+            this.state.energia += rates.recoveryRate * recoveryMod * dt * 2;
+        }
 
         this.state.fatigaAcumulada += rates.energyConsumption * activity * 0.1 * dt;
         this.state.fatigaAcumulada = Math.max(0, this.state.fatigaAcumulada - rates.recoveryRate * 2 * dt);
@@ -194,16 +198,22 @@ export class BiochemicalSystem {
         this.regulateGlucose(dt);
     }
 
+    /**
+     * FIX: antes había dos términos redundantes que hacían pull-to-base
+     * (decay + 0.01*dt*stability). Ahora solo uno.
+     */
     updateNeuroendocrineSystem(dt) {
         const decay = this.metabolicRates.neurotransmitterDecay * dt;
         const stability = this.genotypeConfig.neurotransmitterStability;
 
-        Object.keys(this.neurotransmitterBaselines).forEach(nt => {
-            const cur = this.state[nt];
+        for (const nt of Object.keys(this.neurotransmitterBaselines)) {
+            const cur = this.state[nt] ?? 0;
             const base = this.neurotransmitterBaselines[nt];
             const diff = cur - base;
-            this.state[nt] = cur - diff * decay * 0.5 + (base - cur) * 0.01 * dt * stability;
-        });
+            // Pull-to-base único, escalado por estabilidad
+            const pull = diff * decay * 0.5 * stability;
+            this.state[nt] = cur - pull;
+        }
 
         this.calculateNeurotransmitterInteractions(dt);
         this.regulateHormones(dt);
@@ -243,6 +253,34 @@ export class BiochemicalSystem {
 
     applyHomeostasis(dt) {
         const rate = 0.05 * dt;
+
+        for (const nt of Object.keys(this.neurotransmitterBaselines)) {
+            this.state[nt] = this.clamp(this.state[nt], 0, 100);
+        }
+
+        for (const k of Object.keys(this.homeostasisTargets)) {
+            if (typeof this.state[k] === 'number' && !Array.isArray(this.state[k])) {
+                const diff = this.homeostasisTargets[k] - this.state[k];
+                this.state[k] += diff * (Math.abs(diff) > 10 ? rate * 0.5 : rate);
+            }
+        }
+
+        this.state.homeostasisDelta = this.calculateHomeostasisDelta();
+    }
+
+    calculateHomeostasisDelta() {
+        let total = 0, count = 0;
+        for (const k of Object.keys(this.homeostasisTargets)) {
+            if (typeof this.state[k] === 'number' && !Array.isArray(this.state[k])) {
+                const target = this.homeostasisTargets[k] || 1;
+                total += Math.abs(target - this.state[k]) / target;
+                count++;
+            }
+        }
+        return count > 0 ? total / count : 0;
+    }
+
+    _applyHomeostasisClamp() {
         this.state.oxigeno = this.clamp(this.state.oxigeno, 0, 100);
         this.state.energia = this.clamp(this.state.energia, 0, 100);
         this.state.toxicidad = this.clamp(this.state.toxicidad, 0, 100);
@@ -250,30 +288,9 @@ export class BiochemicalSystem {
         this.state.temperatura = this.clamp(this.state.temperatura, 35, 42);
         this.state.ph = this.clamp(this.state.ph, 7.0, 7.8);
         this.state.recuperacion = this.clamp(this.state.recuperacion, 0, 100);
-
-        Object.keys(this.neurotransmitterBaselines).forEach(nt => {
-            this.state[nt] = this.clamp(this.state[nt], 0, 100);
-        });
-
-        Object.keys(this.homeostasisTargets).forEach(k => {
-            if (typeof this.state[k] === 'number' && !Array.isArray(this.state[k])) {
-                const diff = this.homeostasisTargets[k] - this.state[k];
-                this.state[k] += diff * (Math.abs(diff) > 10 ? rate * 0.5 : rate);
-            }
-        });
-
-        this.state.homeostasisDelta = this.calculateHomeostasisDelta();
-    }
-
-    calculateHomeostasisDelta() {
-        let total = 0, count = 0;
-        Object.keys(this.homeostasisTargets).forEach(k => {
-            if (typeof this.state[k] === 'number' && !Array.isArray(this.state[k])) {
-                total += Math.abs(this.homeostasisTargets[k] - this.state[k]) / (this.homeostasisTargets[k] || 1);
-                count++;
-            }
-        });
-        return count > 0 ? total / count : 0;
+        this.state.dioxidoCarbono = this.clamp(this.state.dioxidoCarbono, 0, 100);
+        this.state.monoxidoCarbono = this.clamp(this.state.monoxidoCarbono, 0, 100);
+        this.state.fatigaAcumulada = Math.max(0, this.state.fatigaAcumulada);
     }
 
     updateVitalSigns() {
@@ -308,9 +325,6 @@ export class BiochemicalSystem {
         return Math.max(0.1, na * en * cort * fat);
     }
 
-    /**
-     * Ritmo circadiano basado en hora real (UTC 0-24).
-     */
     getCircadianPhase() {
         const hour = systemCore.getCircadianHour();
         return {
@@ -321,6 +335,7 @@ export class BiochemicalSystem {
     }
 
     checkCriticalConditions() {
+        if (this._criticalCooldown > 0) return;
         const crit = {
             oxigeno: this.state.oxigeno < 15,
             energia: this.state.energia < 10,
@@ -328,7 +343,14 @@ export class BiochemicalSystem {
             cortisol: this.state.cortisol > 85
         };
         if (crit.oxigeno || crit.energia || crit.toxicidad || crit.cortisol) {
-            this.emitEvent('critical', { type: 'bio_critical', conditions: crit, state: { ...this.state } });
+            this.emitEvent('critical', {
+                type: 'bio_critical',
+                severity: 0.9,
+                conditions: crit,
+                state: { oxigeno: this.state.oxigeno, energia: this.state.energia, toxicidad: this.state.toxicidad, cortisol: this.state.cortisol }
+            });
+            this._criticalCooldown = 10;
+            return;
         }
         const warn = {
             oxigeno: this.state.oxigeno < 25,
@@ -337,17 +359,32 @@ export class BiochemicalSystem {
             cortisol: this.state.cortisol > 70
         };
         if (warn.oxigeno || warn.energia || warn.toxicidad || warn.cortisol) {
-            this.emitEvent('warning', { type: 'bio_warning', conditions: warn, state: { ...this.state } });
+            this.emitEvent('warning', {
+                type: 'bio_warning',
+                severity: 0.6,
+                conditions: warn
+            });
+            this._criticalCooldown = 5;
         }
     }
 
+    _trimHistory() {
+        if (this.energyHistory.length > 200) this.energyHistory = this.energyHistory.slice(-200);
+        if (this.stressHistory.length > 200) this.stressHistory = this.stressHistory.slice(-200);
+    }
+
+    /**
+     * FIX: antes solo aplicaba deltas sin clamp y esperaba al siguiente tick.
+     * Ahora aplica y clampea inmediatamente.
+     */
     handleSituation(situationType, intensity) {
         const effects = this.getSituationEffects(situationType, intensity);
-        Object.keys(effects).forEach(k => {
+        for (const k of Object.keys(effects)) {
             if (this.state[k] !== undefined && typeof this.state[k] === 'number') {
                 this.state[k] = this.clamp(this.state[k] + effects[k], 0, 100);
             }
-        });
+        }
+        this._applyHomeostasisClamp();
     }
 
     getSituationEffects(type, i) {
@@ -370,36 +407,61 @@ export class BiochemicalSystem {
             'confianza': { oxitocina: 30 * i, serotonina: 20 * i, cortisol: -15 * i },
             'sorpresa': { adrenalina: 20 * i, noradrenalina: 15 * i },
             'estres_alto': { cortisol: 30 * i, adrenalina: 20 * i, noradrenalina: 25 * i },
-            'recuperacion': { cortisol: -20 * i, energia: 15 * i, recuperacion: 25 * i }
+            'recuperacion': { cortisol: -20 * i, energia: 15 * i, recuperacion: 25 * i },
+            'descanso': { cortisol: -15 * i, energia: 20 * i, recuperacion: 20 * i },
+            'fatiga': { energia: -25 * i, cortisol: 10 * i, fatigaAcumulada: 20 * i },
+            'aprendizaje_intenso': { dopamina: 15 * i, acetilcolina: 20 * i, noradrenalina: 10 * i },
+            'insight': { dopamina: 20 * i, serotonina: 15 * i, endorfinas: 15 * i },
+            'lesion': { toxicidad: 20 * i, cortisol: 25 * i, recuperacion: -30 * i },
+            'entrenamiento': { noradrenalina: 20 * i, energia: -20 * i, fatigaAcumulada: 15 * i },
+            'logro': { dopamina: 30 * i, serotonina: 20 * i, oxitocina: 15 * i },
+            'fracaso': { cortisol: 25 * i, serotonina: -20 * i, dopamina: -15 * i },
+            'inspiracion': { dopamina: 25 * i, serotonina: 20 * i, noradrenalina: 15 * i },
+            'tormenta': { cortisol: 20 * i, noradrenalina: 15 * i },
+            'desastre': { cortisol: 40 * i, adrenalina: 30 * i, toxicidad: 15 * i },
+            'amanecer': { cortisol: 10 * i, oxigeno: 5 * i },
+            'anochecer': { melatonina: 15 * i, cortisol: -10 * i }
         };
         return map[type] || {};
     }
 
     applyModulation(mod) {
-        Object.keys(mod).forEach(k => {
+        for (const k of Object.keys(mod)) {
             if (this.state[k] !== undefined && typeof this.state[k] === 'number') {
                 this.state[k] = this.clamp(this.state[k] + mod[k], 0, 100);
             }
-        });
+        }
     }
 
     adjustMetabolicRates(factor) {
-        Object.keys(this.metabolicRates).forEach(k => {
+        for (const k of Object.keys(this.metabolicRates)) {
             this.metabolicRates[k] = Math.max(0.01, this.metabolicRates[k] * factor);
+        }
+    }
+
+    /**
+     * FIX: ahora es reversible. Guarda los rates originales para restaurarlos.
+     */
+    emergencyProtocol() {
+        if (!this._savedMetabolicRates) {
+            this._savedMetabolicRates = { ...this.metabolicRates };
+        }
+        this.applyModulation({
+            cortisol: -50, adrenalina: -30, noradrenalina: -20,
+            energia: 20, oxigeno: 20, recuperacion: 20
+        });
+        this.adjustMetabolicRates(0.7);
+        this.emitEvent('emergency', {
+            type: 'bio_emergency',
+            severity: 0.95,
+            state: { cortisol: this.state.cortisol, energia: this.state.energia, oxigeno: this.state.oxigeno }
         });
     }
 
-    emergencyProtocol() {
-        this.applyModulation({
-            cortisol: -50,
-            adrenalina: -30,
-            noradrenalina: -20,
-            energia: 20,
-            oxigeno: 20,
-            recuperacion: 20
-        });
-        this.adjustMetabolicRates(0.7);
-        this.emitEvent('emergency', { type: 'bio_emergency', state: { ...this.state } });
+    restoreMetabolicRates() {
+        if (this._savedMetabolicRates) {
+            this.metabolicRates = { ...this._savedMetabolicRates };
+        }
     }
 
     getState() { return { ...this.state }; }
@@ -410,8 +472,10 @@ export class BiochemicalSystem {
 
     reset() {
         this.initializeState();
+        this.setupMetabolicRates();
         this.energyHistory = [];
         this.stressHistory = [];
+        this._criticalCooldown = 0;
     }
 
     exportData() {
