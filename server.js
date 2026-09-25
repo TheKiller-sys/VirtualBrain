@@ -7,6 +7,12 @@
 //  - Endpoints /api/conversation/*
 //  - Persistencia de conversaciones por batch
 //  - /api/chat mantiene compat + campos nuevos
+//
+// CAMBIOS V4.2.1 (fixes):
+//  - intentToRegionType ahora lee de TUNING.intentToRegion (fuente única).
+//  - /api/chat incluye state.simTime para que el frontend lo muestre.
+//  - CORS en producción sin CORS_ORIGIN ya NO permite cualquier origen
+//    con credenciales: se bloquea cross-origin y se deja pasar same-origin.
 
 import 'dotenv/config';
 import express from 'express';
@@ -67,14 +73,26 @@ if (IS_PROD && !allowedOrigins && TUNING.validation.requireCorsOriginInProductio
     process.exit(1);
 }
 
+// ------------------------------------------------------------------
+// FIX V4.2.1 — CORS
+// Antes: si no había CORS_ORIGIN en prod, se permitía CUALQUIER origen
+// con credenciales (`origin: true`). Riesgo innecesario.
+// Ahora:
+//   - Con CORS_ORIGIN definido  → whitelist estricta.
+//   - Prod sin CORS_ORIGIN     → `cb(null, false)` (sin cabeceras CORS).
+//     Mismo origen sigue funcionando, cross-origin lo bloquea el navegador.
+//   - Dev sin CORS_ORIGIN      → `true` (todo permitido, como antes).
+// ------------------------------------------------------------------
+const corsOriginOption = allowedOrigins
+    ? (origin, cb) => {
+        if (!origin) return cb(null, true);
+        if (allowedOrigins.includes(origin)) return cb(null, true);
+        return cb(new Error('CORS bloqueado'));
+    }
+    : (IS_PROD ? ((origin, cb) => cb(null, false)) : true);
+
 app.use(cors({
-    origin: allowedOrigins
-        ? (origin, cb) => {
-            if (!origin) return cb(null, true);
-            if (allowedOrigins.includes(origin)) return cb(null, true);
-            return cb(new Error('CORS bloqueado'));
-        }
-        : true,
+    origin: corsOriginOption,
     credentials: true,
     maxAge: 86400,
     allowedHeaders: ['Content-Type', 'X-Admin-Token', 'X-Session-Id']
@@ -227,40 +245,13 @@ function computeRegion(name, cfg, modules) {
 }
 
 /**
- * Mapea el intent de conversación a un tipo de análisis interno
- * para las regiones cerebrales. Esto permite que "expresion_tristeza"
- * active el lémbico, "filosofia" active frontal, etc.
+ * FIX V4.2.1: ahora es un lookup directo contra TUNING.intentToRegion
+ * (fuente única de verdad). Antes había un mapa hard-coded aquí que
+ * devolvía claves ("tristeza", "ira", "fatiga", "trabajo"...) que no
+ * existían en regions.*.boost y por tanto no activaban nada.
  */
 function intentToRegionType(intent) {
-    const map = {
-        peligro: 'peligro',
-        solicitud_ayuda: 'ayuda',
-        expresion_tristeza: 'tristeza',
-        expresion_ansiedad: 'miedo',
-        expresion_ira: 'ira',
-        expresion_alegria: 'alegria',
-        expresion_cansancio: 'fatiga',
-        expresion_confusion: 'general',
-        solicitud_consejo: 'decision',
-        decision: 'decision',
-        filosofia: 'filosofia',
-        tema_relaciones: 'social',
-        tema_trabajo: 'trabajo',
-        tema_estudio: 'general',
-        tema_salud: 'general',
-        tema_muerte: 'filosofia',
-        pregunta_estado: 'general',
-        pregunta_identidad: 'general',
-        pregunta_capacidad: 'general',
-        pregunta_opinion: 'filosofia',
-        saludo: 'general',
-        despedida: 'general',
-        agradecimiento: 'social',
-        disculpa: 'social',
-        pregunta_generica: 'general',
-        charla: 'general'
-    };
-    return map[intent] || 'general';
+    return TUNING.intentToRegion[intent] || 'general';
 }
 
 // ==================== RUTA PRINCIPAL ====================
@@ -493,7 +484,7 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
             }
         }
 
-        // 10. Regiones activadas según intención
+        // 10. Regiones activadas según intención (ahora vía TUNING.intentToRegion)
         const regionAnalysisType = intentToRegionType(analysis.intent);
         const regions = computeActivatedRegions(state, regionAnalysisType);
 
@@ -516,7 +507,9 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
             state: {
                 consciousness: state.system?.consciousness ?? 0,
                 stability: state.system?.stability ?? 0,
-                performance: state.system?.performance ?? 0
+                performance: state.system?.performance ?? 0,
+                // FIX V4.2.1: propagar simTime para que el frontend lo muestre
+                simTime: state.system?.simTime ?? 0
             },
             activated_regions: regions,
 
@@ -918,7 +911,7 @@ async function startBrain() {
 const server = app.listen(PORT, async () => {
     console.log(`
 ╔══════════════════════════════════════════════════════════╗
-║   🧠 CEREBRO DIGITAL V4.2 — API CORRIENDO                ║
+║   🧠 CEREBRO DIGITAL V4.2.1 — API CORRIENDO              ║
 ║   📡 http://localhost:${String(PORT).padEnd(5)}                              ║
 ║   🌐 http://localhost:${String(PORT).padEnd(5)}/                             ║
 ║   🔍 /api/health  💬 POST /api/chat                       ║
