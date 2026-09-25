@@ -1,4 +1,11 @@
 // src/modules/ControlSystem.js
+// V4.1
+//
+// CAMBIOS CLAVE V4.1:
+//  - update/updateSlow como no-op (módulo de UI, no necesita ticks)
+//  - emergencyStop invoca resetEmergency para permitir recuperación
+//  - API limpia para todos los controles
+
 import { systemCore } from '../core/SystemCore.js';
 
 export class ControlSystem {
@@ -19,7 +26,7 @@ export class ControlSystem {
         this.initializeUIState();
         this.setupControlMapping();
         this.setupSituationPresets();
-        systemCore.logSystem('Sistema de control V4 inicializado');
+        systemCore.logSystem('Sistema de control V4.1 inicializado');
     }
 
     initializeUIState() {
@@ -41,7 +48,7 @@ export class ControlSystem {
             mensaje: '¿Reiniciar todo el sistema?'
         });
         this.controlMapping.set('export_data', {
-            funcion: () => this.exportSystemData(),
+            funcion: () => systemCore.exportSystemData(),
             confirmacion: false
         });
         this.controlMapping.set('toggle_ai', {
@@ -52,6 +59,10 @@ export class ControlSystem {
             funcion: () => this.emergencyStop(),
             confirmacion: true,
             mensaje: '¿Activar parada de emergencia?'
+        });
+        this.controlMapping.set('reset_emergency', {
+            funcion: () => systemCore.resetEmergency(),
+            confirmacion: false
         });
     }
 
@@ -95,41 +106,56 @@ export class ControlSystem {
     }
 
     onEvent(cb) { this.eventListeners.push(cb); }
+
     emitEvent(type, data) {
-        this.eventListeners.forEach(cb => {
-            try { cb({ type, data, module: 'control' }); }
+        const payload = { type, data, module: 'control', simTime: systemCore.systemTime };
+        for (const cb of this.eventListeners) {
+            try { cb(payload); }
             catch (err) { console.error('❌ control listener:', err); }
-        });
+        }
     }
 
+    // No-op: ControlSystem no tiene estado dinámico que actualizar.
+    // SystemCore lo invoca por simetría con el resto de módulos.
     update(input, deltaTime) {
         return this.getState();
     }
 
+    updateSlow(input, slowDelta) {
+        // No-op intencional
+    }
+
     executeControl(controlId) {
         const c = this.controlMapping.get(controlId);
-        if (!c) return;
-        c.funcion();
-        this.lastControlAction = controlId;
-        this.actionHistory.push({ control: controlId, timestamp: Date.now() });
-        if (this.actionHistory.length > 50) this.actionHistory.shift();
+        if (!c) return { success: false, error: `Control desconocido: ${controlId}` };
+        try {
+            const result = c.funcion();
+            this.lastControlAction = controlId;
+            this.actionHistory.push({ control: controlId, timestamp: Date.now() });
+            if (this.actionHistory.length > 50) this.actionHistory.shift();
+            return { success: true, result };
+        } catch (err) {
+            return { success: false, error: err.message };
+        }
     }
 
     applySituation(type, intensity = 1.0) {
-        systemCore.applySituation(type, intensity);
+        const result = systemCore.applySituation(type, intensity);
         this.actionHistory.push({ action: 'situation', type, intensity, timestamp: Date.now() });
         this.addLog(`Situación aplicada: ${type}`, 'system');
+        return result;
     }
 
     async executeSequence(sequenceId) {
         const seq = this.situationPresets.get(sequenceId);
-        if (!seq) return;
+        if (!seq) return { success: false, error: 'Secuencia no encontrada' };
         this.addLog(`Iniciando secuencia: ${seq.nombre}`, 'system');
         for (const s of seq.situaciones) {
             await this.delay(s.delay);
             this.applySituation(s.tipo, s.intensidad);
         }
         this.addLog(`Secuencia completada: ${seq.nombre}`, 'system');
+        return { success: true };
     }
 
     changeCharacter(genotipo) {
@@ -152,13 +178,24 @@ export class ControlSystem {
         return systemCore.autoEvolution;
     }
 
-    emergencyStop() {
+    /**
+     * FIX: además de activar, permite programar un reset automático
+     * si se pasa `autoResetMs`. Útil para pruebas.
+     */
+    emergencyStop(autoResetMs = 0) {
         systemCore.triggerEmergencyProtocol();
         this.addLog('🚨 PARADA DE EMERGENCIA', 'error');
+        if (autoResetMs > 0) {
+            const t = setTimeout(() => {
+                systemCore.resetEmergency();
+                this.addLog('🔓 Reset automático aplicado', 'system');
+            }, autoResetMs);
+            if (t.unref) t.unref();
+        }
     }
 
     addLog(message, type = 'info') {
-        const log = { message, type, timestamp: new Date().toLocaleTimeString() };
+        const log = { message, type, timestamp: Date.now(), simTime: systemCore.systemTime };
         this.systemLogs.push(log);
         if (this.systemLogs.length > 100) this.systemLogs.shift();
         systemCore.logSystem(message, type);
@@ -167,7 +204,9 @@ export class ControlSystem {
     delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
     getUIState() { return { ...this.uiState }; }
-    getSituationPresets() { return Array.from(this.situationPresets.entries()).map(([id, p]) => ({ id, ...p })); }
+    getSituationPresets() {
+        return Array.from(this.situationPresets.entries()).map(([id, p]) => ({ id, ...p }));
+    }
     getControlMapping() { return new Map(this.controlMapping); }
     getActionHistory() { return this.actionHistory.slice(-20); }
     getLogs() { return this.systemLogs.slice(-50); }
@@ -175,8 +214,8 @@ export class ControlSystem {
     getState() {
         return {
             uiState: this.getUIState(),
-            presets: this.getSituationPresets(),
-            actionHistory: this.getActionHistory()
+            presets: this.getSituationPresets().map(p => p.id),
+            actionCount: this.actionHistory.length
         };
     }
 
