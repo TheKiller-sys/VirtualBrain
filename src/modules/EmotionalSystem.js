@@ -1,5 +1,56 @@
 // src/modules/EmotionalSystem.js
+// V4.1
+//
+// CAMBIOS CLAVE V4.1:
+//  - getEmotionalBaseline() completa (antes la mitad eran 0)
+//  - estabilidad con dinámica real (antes subía monotónicamente a 100)
+//  - muestreo de historial a 1 Hz (antes 4/s)
+//  - updateSlow para regulación pesada
+//  - eventos con severity para SystemCore
+//  - handleSituation con clamp inmediato
+
 import { systemCore } from '../core/SystemCore.js';
+
+// Baselines por defecto (multiplicados por el perfil genético)
+const EMOTIONAL_BASELINES = Object.freeze({
+    // Primarias
+    alegria: 20,
+    tristeza: 10,
+    miedo: 5,
+    ira: 5,
+    asco: 3,
+    sorpresa: 8,
+    // Sociales / secundarias
+    confianza: 50,
+    verguenza: 5,
+    orgullo: 15,
+    culpa: 5,
+    envidia: 3,
+    gratitud: 20,
+    esperanza: 30,
+    aceptacion: 40,
+    frustracion: 20,
+    nostalgia: 15,
+    conexion: 45,
+    soledad: 10,
+    ansiedad: 20,
+    bienestar: 65,
+    depresion: 10,
+    euforia: 5,
+    satisfaccion: 55,
+    realizacion: 40,
+    humor: 60,
+    // Meta
+    estabilidad: 80,
+    resiliencia: 75,
+    sensibilidad: 50
+});
+
+// Claves que NO se regulan con baseline (son dimensiones calculadas)
+const DIMENSION_KEYS = new Set([
+    'valencia', 'activacion', 'dominio', 'intensidad',
+    'complejidad', 'polaridad', 'regulacion', 'humor'
+]);
 
 export class EmotionalSystem {
     constructor() {
@@ -13,6 +64,13 @@ export class EmotionalSystem {
         this.lastUpdateTime = 0;
         this.activePatterns = [];
         this.emotionalProfile = {};
+
+        // Control de muestreo
+        this._lastHistoryAt = -Infinity;
+        this._historyIntervalSec = 1.0;
+
+        // Contador para eventos de critical
+        this._criticalCooldown = 0;
     }
 
     async initialize(characterConfig) {
@@ -21,7 +79,7 @@ export class EmotionalSystem {
         this.initializeState();
         this.setupCircadianRhythm();
         this.setupEmotionalPatterns();
-        systemCore.logSystem('Sistema emocional V4 inicializado');
+        systemCore.logSystem('Sistema emocional V4.1 inicializado');
     }
 
     setupEmotionalBaselines() {
@@ -39,14 +97,11 @@ export class EmotionalSystem {
 
     setupCircadianRhythm() {
         this.circadianRhythm = {
-            phase: 0,
-            amplitude: 0.3,
-            period: 86400,
             emotionalVariation: {
-                morning: { energy: 0.2, positivity: 0.3, stability: 0.1 },
-                afternoon: { energy: 0.1, positivity: 0.1, stability: -0.1 },
-                evening: { energy: -0.1, positivity: -0.2, stability: 0.1 },
-                night: { energy: -0.3, positivity: -0.4, stability: -0.2 }
+                morning:   { energy: 0.2,  positivity: 0.3,  stability: 0.1 },
+                afternoon: { energy: 0.1,  positivity: 0.1,  stability: -0.1 },
+                evening:   { energy: -0.1, positivity: -0.2, stability: 0.1 },
+                night:     { energy: -0.3, positivity: -0.4, stability: -0.2 }
             }
         };
     }
@@ -72,25 +127,33 @@ export class EmotionalSystem {
 
     initializeState() {
         this.state = {
-            alegria: 20, tristeza: 10, miedo: 5, ira: 5, asco: 3, sorpresa: 8, confianza: 50,
-            verguenza: 5, orgullo: 15, culpa: 5, envidia: 3, gratitud: 20,
-            valencia: 0.6, activacion: 0.5, dominio: 0.7, estabilidad: 80, resiliencia: 75, sensibilidad: 50,
-            humor: 60, ansiedad: 20, depresion: 10, euforia: 5, intensidad: 0.5, complejidad: 0.3,
-            polaridad: 0.6, regulacion: 0.7, bienestar: 65, satisfaccion: 55, conexion: 45,
-            realizacion: 40, esperanza: 30, aceptacion: 40, frustracion: 20, nostalgia: 15, soledad: 10
+            alegria: 20, tristeza: 10, miedo: 5, ira: 5, asco: 3, sorpresa: 8,
+            confianza: 50, verguenza: 5, orgullo: 15, culpa: 5, envidia: 3,
+            gratitud: 20, esperanza: 30, aceptacion: 40, frustracion: 20,
+            nostalgia: 15, conexion: 45, soledad: 10,
+            ansiedad: 20, bienestar: 65, depresion: 10, euforia: 5,
+            satisfaccion: 55, realizacion: 40,
+            valencia: 0.6, activacion: 0.5, dominio: 0.7,
+            estabilidad: 80, resiliencia: 75, sensibilidad: 50,
+            humor: 60, intensidad: 0.5, complejidad: 0.3,
+            polaridad: 0.6, regulacion: 0.7
         };
         this.emotionalMemory = [];
         this.emotionalHistory = [];
         this.lastUpdateTime = systemCore.systemTime;
         this.activePatterns = [];
+        this._lastHistoryAt = -Infinity;
+        this._criticalCooldown = 0;
     }
 
     onEvent(cb) { this.eventListeners.push(cb); }
+
     emitEvent(type, data) {
-        this.eventListeners.forEach(cb => {
-            try { cb({ type, data, module: 'emotional' }); }
+        const payload = { type, data, module: 'emotional', simTime: systemCore.systemTime };
+        for (const cb of this.eventListeners) {
+            try { cb(payload); }
             catch (err) { console.error('❌ emo listener:', err); }
-        });
+        }
     }
 
     update(input, deltaTime) {
@@ -101,19 +164,40 @@ export class EmotionalSystem {
         if (input.personality) this.applyPersonalityInfluence(input.personality, deltaTime);
         this.applyCircadianEffects(deltaTime);
         this.processEmotionalPatterns(deltaTime);
-        this.processEmotionalRegulation(deltaTime);
         this.updateMoodStates(deltaTime);
         this.calculateAdvancedEmotions(deltaTime);
-        this.applyEmotionalHomeostasis(deltaTime);
-        this.recordEmotionalState();
+        this.applyEmotionalHomeostasis();
 
+        // Muestreo de historial a 1 Hz (no cada tick)
+        if (this.lastUpdateTime - this._lastHistoryAt >= this._historyIntervalSec) {
+            this._lastHistoryAt = this.lastUpdateTime;
+            this.recordEmotionalState();
+        }
+
+        // Persistencia (debounced por SystemCore)
         systemCore.queuePersistence('emotional', () => {
             if (systemCore.database?.isInitialized) {
-                return systemCore.database.saveEmotionalState(this.state);
+                return systemCore.database.saveEmotionalState({
+                    ...this.state,
+                    sim_time: systemCore.systemTime
+                });
             }
         });
 
+        this._checkCriticalConditions();
+
         return this.getState();
+    }
+
+    /**
+     * Operaciones pesadas que no necesitan 4 Hz:
+     *  - regulación completa (iterar todas las emociones)
+     *  - detección de patrones emergentes
+     *  - cooldown de eventos críticos
+     */
+    updateSlow(input, slowDelta) {
+        this.processEmotionalRegulation(slowDelta);
+        this._criticalCooldown = Math.max(0, this._criticalCooldown - slowDelta);
     }
 
     calculateBiochemicalEmotions(bio, dt) {
@@ -130,13 +214,13 @@ export class EmotionalSystem {
             acetilcolina: { sorpresa: 0.3, nostalgia: 0.2 }
         };
 
-        Object.keys(effects).forEach(nt => {
-            const level = (bio[nt] || 50) / 100;
+        for (const nt of Object.keys(effects)) {
+            const level = (bio[nt] ?? 50) / 100;
             const mult = intensity * dt * 10;
-            Object.keys(effects[nt]).forEach(em => {
+            for (const em of Object.keys(effects[nt])) {
                 this.state[em] = (this.state[em] || 0) + effects[nt][em] * level * mult;
-            });
-        });
+            }
+        }
 
         if (bio.oxigeno < 40) {
             const h = (100 - bio.oxigeno) * 0.008 * dt;
@@ -159,30 +243,30 @@ export class EmotionalSystem {
 
     applyPersonalityInfluence(p, dt) {
         const traits = p.traits || {};
-        if (traits.extraversion) {
+        if (traits.extraversion !== undefined) {
             const f = (traits.extraversion - 0.5) * 2;
             this.state.alegria += f * 4 * dt;
             this.state.activacion += f * 0.08 * dt;
             this.state.conexion += f * 0.1 * dt;
         }
-        if (traits.neuroticism) {
+        if (traits.neuroticism !== undefined) {
             const f = (traits.neuroticism - 0.5) * 2;
             this.state.miedo += f * 3 * dt;
             this.state.ansiedad += f * 4 * dt;
             this.state.estabilidad -= f * 5 * dt;
         }
-        if (traits.agreeableness) {
+        if (traits.agreeableness !== undefined) {
             const f = (traits.agreeableness - 0.5) * 2;
             this.state.confianza += f * 4 * dt;
             this.state.gratitud += f * 3 * dt;
             this.state.conexion += f * 0.3 * dt;
         }
-        if (traits.openness) {
+        if (traits.openness !== undefined) {
             const f = (traits.openness - 0.5) * 2;
             this.state.sorpresa += f * 2 * dt;
             this.state.esperanza += f * 0.2 * dt;
         }
-        if (traits.conscientiousness) {
+        if (traits.conscientiousness !== undefined) {
             const f = (traits.conscientiousness - 0.5) * 2;
             this.state.estabilidad += f * 3 * dt;
             this.state.regulacion += f * 0.1 * dt;
@@ -215,17 +299,21 @@ export class EmotionalSystem {
             return true;
         });
 
-        if (this.state.miedo > 60 && this.state.ansiedad > 50 && !this.activePatterns.find(p => p.type === 'anxiety_cycle'))
-            this.startPattern('anxiety_cycle', 1.0);
-        if (this.state.alegria > 70 && this.state.sorpresa > 30 && !this.activePatterns.find(p => p.type === 'joy_spiral'))
-            this.startPattern('joy_spiral', 0.8);
-        if (this.state.ira > 60 && this.state.activacion > 0.7 && !this.activePatterns.find(p => p.type === 'anger_cycle'))
-            this.startPattern('anger_cycle', 0.9);
-        if (this.state.tristeza > 50 && this.state.miedo > 40 && !this.activePatterns.find(p => p.type === 'recovery_pattern'))
-            this.startPattern('recovery_pattern', 0.7);
+        if (this.state.miedo > 60 && this.state.ansiedad > 50 && !this.activePatterns.find(p => p.type === 'anxiety_cycle')) {
+            this._startPattern('anxiety_cycle', 1.0);
+        }
+        if (this.state.alegria > 70 && this.state.sorpresa > 30 && !this.activePatterns.find(p => p.type === 'joy_spiral')) {
+            this._startPattern('joy_spiral', 0.8);
+        }
+        if (this.state.ira > 60 && this.state.activacion > 0.7 && !this.activePatterns.find(p => p.type === 'anger_cycle')) {
+            this._startPattern('anger_cycle', 0.9);
+        }
+        if (this.state.tristeza > 50 && this.state.miedo > 40 && !this.activePatterns.find(p => p.type === 'recovery_pattern')) {
+            this._startPattern('recovery_pattern', 0.7);
+        }
     }
 
-    startPattern(type, intensity) {
+    _startPattern(type, intensity) {
         const p = this.emotionalPatterns.get(type);
         if (!p) return;
         this.activePatterns.push({
@@ -235,7 +323,7 @@ export class EmotionalSystem {
             totalDuration: p.duration,
             intensity: intensity * p.intensityMultiplier,
             timeRemaining: p.duration,
-            startTime: this.lastUpdateTime
+            startSimTime: this.lastUpdateTime
         });
         this.emitEvent('pattern_started', { pattern: type, intensity });
     }
@@ -244,22 +332,31 @@ export class EmotionalSystem {
         const stab = this.state.estabilidad / 100;
         const reg = this.emotionalProfile?.emotionalRegulation || 1.0;
 
-        Object.keys(this.state).forEach(em => {
-            if (typeof this.state[em] !== 'number') return;
-            if (['valencia', 'activacion', 'dominio', 'intensidad', 'complejidad', 'polaridad', 'regulacion'].includes(em)) return;
-            const cur = this.state[em] || 0;
+        // Regulación hacia baseline de cada emoción
+        for (const em of Object.keys(this.state)) {
+            if (typeof this.state[em] !== 'number') continue;
+            if (DIMENSION_KEYS.has(em)) continue;
+            const cur = this.state[em];
             const base = this.getEmotionalBaseline(em);
             const diff = base - cur;
             let rate = 0.08 * stab * reg * dt;
-            if (['miedo', 'ira', 'tristeza', 'ansiedad'].includes(em)) rate *= 1.3;
+            if (em === 'miedo' || em === 'ira' || em === 'tristeza' || em === 'ansiedad') rate *= 1.3;
             this.state[em] += diff * rate;
-        });
+        }
 
-        ['miedo', 'ira', 'tristeza', 'ansiedad', 'culpa', 'frustracion'].forEach(em => {
-            if (this.state[em] > 30) this.state[em] -= 0.04 * reg * dt * (this.state[em] / 100);
-        });
-        this.state.estabilidad += 0.08 * reg * dt;
+        // Reducción extra para emociones intensas negativas
+        for (const em of ['miedo', 'ira', 'tristeza', 'ansiedad', 'culpa', 'frustracion']) {
+            if (this.state[em] > 30) {
+                this.state[em] -= 0.04 * reg * dt * (this.state[em] / 100);
+            }
+        }
 
+        // FIX: estabilidad hacia baseline, no crecimiento monotónico
+        const stabBase = 80 * (this.emotionalProfile?.emotionalStability || 1.0);
+        const stabDiff = stabBase - this.state.estabilidad;
+        this.state.estabilidad += stabDiff * 0.08 * reg * dt;
+
+        // Conexión social
         const social = this.emotionalProfile?.empathyBaseline || 1.0;
         if (this.state.conexion > 50) {
             this.state.alegria += 0.08 * social * dt;
@@ -308,7 +405,6 @@ export class EmotionalSystem {
         this.state.polaridad = (this.state.polaridad + 1) / 2;
 
         this.state.satisfaccion = ((this.state.bienestar || 0) + (this.state.humor || 0) + (this.state.realizacion || 0)) / 3;
-
         this.state.realizacion += ((this.state.orgullo || 0) / 100 - (this.state.realizacion || 0) / 100) * 0.008 * dt;
         this.state.conexion += ((this.state.confianza || 0) / 100 - (this.state.conexion || 0) / 100) * 0.008 * dt;
 
@@ -319,89 +415,93 @@ export class EmotionalSystem {
     }
 
     applyEmotionalHomeostasis() {
-        const limits = {
-            alegria: [0, 100], tristeza: [0, 90], miedo: [0, 95], ira: [0, 90], asco: [0, 80],
-            sorpresa: [0, 70], confianza: [0, 95], ansiedad: [0, 85], depresion: [0, 80],
-            euforia: [0, 50], bienestar: [0, 100], satisfaccion: [0, 100], conexion: [0, 100],
-            realizacion: [0, 100], esperanza: [0, 100], aceptacion: [0, 100], frustracion: [0, 80],
-            nostalgia: [0, 70], gratitud: [0, 100], orgullo: [0, 100], culpa: [0, 100],
-            verguenza: [0, 100], envidia: [0, 80], soledad: [0, 100]
-        };
-        Object.keys(limits).forEach(e => {
-            if (this.state[e] !== undefined) this.state[e] = this.clamp(this.state[e], limits[e][0], limits[e][1]);
-        });
-        this.state.valencia = this.clamp(this.state.valencia || 0, -1, 1);
-        this.state.activacion = this.clamp(this.state.activacion || 0, 0, 1);
-        this.state.dominio = this.clamp(this.state.dominio || 0, 0, 1);
-        this.state.estabilidad = this.clamp(this.state.estabilidad || 0, 0, 100);
-        this.state.resiliencia = this.clamp(this.state.resiliencia || 0, 0, 100);
-        this.state.sensibilidad = this.clamp(this.state.sensibilidad || 0, 0, 100);
-        this.state.humor = this.clamp(this.state.humor || 0, 0, 100);
-        this.state.intensidad = this.clamp(this.state.intensidad || 0, 0, 1);
-        this.state.complejidad = this.clamp(this.state.complejidad || 0, 0, 1);
-        this.state.polaridad = this.clamp(this.state.polaridad || 0, 0, 1);
-        this.state.regulacion = this.clamp(this.state.regulacion || 0, 0, 1);
+        const c = (v, mn, mx) => Math.max(mn, Math.min(mx, v));
+        for (const k of Object.keys(this.state)) {
+            if (typeof this.state[k] !== 'number') continue;
+            if (k === 'valencia') this.state[k] = c(this.state[k], -1, 1);
+            else if (['activacion', 'dominio', 'intensidad', 'complejidad', 'polaridad', 'regulacion'].includes(k)) {
+                this.state[k] = c(this.state[k], 0, 1);
+            } else {
+                this.state[k] = c(this.state[k], 0, 100);
+            }
+        }
+    }
+
+    _checkCriticalConditions() {
+        if (this._criticalCooldown > 0) return;
+        const s = this.state;
+        const critical = (s.miedo > 80) || (s.ira > 80) || (s.ansiedad > 85) || (s.depresion > 75);
+        if (critical) {
+            this.emitEvent('critical', {
+                type: 'emotional_critical',
+                severity: 0.85,
+                emotions: { miedo: s.miedo, ira: s.ira, ansiedad: s.ansiedad, depresion: s.depresion }
+            });
+            this._criticalCooldown = 10; // segundos
+        }
     }
 
     getRecentEmotionalStates() {
         const recent = this.emotionalMemory.slice(-20);
         if (recent.length === 0) return this.state;
         const avg = {};
-        Object.keys(this.state).forEach(k => {
-            if (typeof this.state[k] !== 'number') return;
-            const validValues = [];
+        for (const k of Object.keys(this.state)) {
+            if (typeof this.state[k] !== 'number') continue;
+            const vals = [];
             for (const st of recent) {
-                if (typeof st[k] === 'number') validValues.push(st[k]);
+                if (typeof st[k] === 'number') vals.push(st[k]);
             }
-            if (validValues.length > 0) {
-                avg[k] = validValues.reduce((s, v) => s + v, 0) / validValues.length;
-            }
-        });
+            if (vals.length > 0) avg[k] = vals.reduce((s, v) => s + v, 0) / vals.length;
+        }
         return avg;
     }
 
-    /**
-     * FIX: `emotionalMemory` es histórico interno. Antes guardaba systemTime
-     * (segundos) mientras el resto del proyecto usa Date.now() (ms). Se
-     * unifica a ms reales para consistencia.
-     */
     recordEmotionalState() {
-        const s = { ...this.state, timestamp: Date.now(), simulationTime: systemCore.systemTime };
+        const s = { ...this.state, wallTime: Date.now(), simTime: systemCore.systemTime };
         this.emotionalMemory.push(s);
         this.emotionalHistory.push(s);
         if (this.emotionalMemory.length > 200) this.emotionalMemory.shift();
         if (this.emotionalHistory.length > 1000) this.emotionalHistory.shift();
     }
 
+    /**
+     * FIX: baseline para TODAS las emociones. Antes la mitad devolvían 0
+     * y se desvanecían a 0. Las dimensiones no se regulan.
+     */
     getEmotionalBaseline(emotion) {
-        const b = {
-            alegria: 20 * (this.emotionalProfile?.joyBaseline || 1.0),
-            tristeza: 10,
-            miedo: 5 * (this.emotionalProfile?.fearThreshold || 1.0),
-            ira: 5 * (this.emotionalProfile?.angerPropensity || 1.0),
-            confianza: 50,
-            estabilidad: 80 * (this.emotionalProfile?.emotionalStability || 1.0),
-            resiliencia: 75 * (this.emotionalProfile?.resilienceBaseline || 1.0),
-            bienestar: 65, satisfaccion: 55, conexion: 45, realizacion: 40,
-            esperanza: 30, aceptacion: 40, ansiedad: 20
-        };
-        return b[emotion] || 0;
+        if (DIMENSION_KEYS.has(emotion)) return this.state[emotion] || 0;
+        const base = EMOTIONAL_BASELINES[emotion];
+        if (base === undefined) return 20; // fallback no-cero
+
+        const p = this.emotionalProfile || {};
+        switch (emotion) {
+            case 'alegria':     return base * (p.joyBaseline || 1.0);
+            case 'miedo':       return base * (p.fearThreshold || 1.0);
+            case 'ira':         return base * (p.angerPropensity || 1.0);
+            case 'estabilidad': return base * (p.emotionalStability || 1.0);
+            case 'resiliencia': return base * (p.resilienceBaseline || 1.0);
+            default:            return base;
+        }
     }
 
     getDominantEmotion() {
         const emotions = ['alegria', 'tristeza', 'miedo', 'ira', 'asco', 'sorpresa', 'confianza', 'ansiedad', 'euforia', 'nostalgia'];
         let dom = 'neutral', max = 0;
-        emotions.forEach(e => {
+        for (const e of emotions) {
             if ((this.state[e] || 0) > max) { max = this.state[e]; dom = e; }
-        });
+        }
         return { emotion: dom, intensity: max };
     }
 
     handleSituation(type, intensity) {
         const eff = this.getSituationEmotionalEffects(type, intensity);
-        Object.keys(eff).forEach(em => {
-            if (this.state[em] !== undefined) this.state[em] += eff[em];
-        });
+        for (const em of Object.keys(eff)) {
+            if (this.state[em] !== undefined && typeof this.state[em] === 'number') {
+                this.state[em] += eff[em];
+            }
+        }
+        // Clamp inmediato tras aplicar
+        this.applyEmotionalHomeostasis();
     }
 
     getSituationEmotionalEffects(type, i) {
@@ -421,7 +521,9 @@ export class EmotionalSystem {
             'logro': { orgullo: 35 * i, satisfaccion: 25 * i, realizacion: 20 * i, esperanza: 15 * i },
             'fracaso': { frustracion: 30 * i, tristeza: 20 * i, confianza: -15 * i, orgullo: -20 * i },
             'reposo': { ansiedad: -15 * i, estabilidad: 10 * i, bienestar: 10 * i },
-            'inspiracion': { alegria: 20 * i, sorpresa: 25 * i, esperanza: 20 * i, creatividad: 15 * i }
+            'inspiracion': { alegria: 20 * i, sorpresa: 25 * i, esperanza: 20 * i, realizacion: 10 * i },
+            'descanso': { ansiedad: -20 * i, miedo: -10 * i, estabilidad: 15 * i, bienestar: 15 * i },
+            'fatiga': { activacion: -0.3 * i, estabilidad: -10 * i, ansiedad: 10 * i }
         };
         return map[type] || {};
     }
@@ -431,32 +533,28 @@ export class EmotionalSystem {
             miedo: -50, ira: -40, ansiedad: -60, activacion: -0.5, estabilidad: 30,
             resiliencia: 20, bienestar: 20, regulacion: 0.3, frustracion: -20
         });
-        this.emitEvent('emergency', { type: 'emotional_emergency', state: { ...this.state } });
+        this.emitEvent('emergency', { type: 'emotional_emergency', severity: 0.95, state: { ...this.state } });
     }
 
     applyModulation(mod) {
-        Object.keys(mod).forEach(k => {
-            if (this.state[k] === undefined) return;
+        for (const k of Object.keys(mod)) {
+            if (this.state[k] === undefined) continue;
             const cur = this.state[k] || 0;
             const change = mod[k];
             let mn = 0, mx = 100;
-            if (['valencia'].includes(k)) { mn = -1; mx = 1; }
+            if (k === 'valencia') { mn = -1; mx = 1; }
             else if (['activacion', 'dominio', 'intensidad', 'complejidad', 'polaridad', 'regulacion'].includes(k)) { mn = 0; mx = 1; }
-            this.state[k] = this.clamp(cur + change, mn, mx);
-        });
+            this.state[k] = Math.max(mn, Math.min(mx, cur + change));
+        }
     }
 
     getState() { return { ...this.state }; }
     getEmotionalMemory() { return [...this.emotionalMemory]; }
     getEmotionalHistory() { return this.emotionalHistory.slice(-100); }
     getActivePatterns() { return [...this.activePatterns]; }
-    clamp(v, mn, mx) { return Math.max(mn, Math.min(mx, v)); }
 
     reset() {
         this.initializeState();
-        this.activePatterns = [];
-        this.emotionalMemory = [];
-        this.emotionalHistory = [];
     }
 
     exportData() {
