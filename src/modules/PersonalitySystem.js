@@ -1,4 +1,12 @@
 // src/modules/PersonalitySystem.js
+// V4.1
+//
+// CAMBIOS CLAVE V4.1:
+//  - evolución poblada manualmente (el trigger AFTER UPDATE no dispara con INSERT)
+//  - updateSlow para evaluación de evolución
+//  - savePersonality con sim_time
+//  - throttle de INSERTs a personalidad_rasgos
+
 import { systemCore } from '../core/SystemCore.js';
 
 export class PersonalitySystem {
@@ -11,6 +19,14 @@ export class PersonalitySystem {
         this.personalityDevelopment = 0;
         this.lastUpdateTime = 0;
         this.config = {};
+
+        // Control de guardado
+        this._lastSavedTraits = null;
+        this._lastSavedAt = 0;
+        this._saveIntervalSec = 60;
+        this._evolThreshold = 0.02;
+
+        this._criticalCooldown = 0;
     }
 
     async initialize(characterConfig) {
@@ -18,7 +34,9 @@ export class PersonalitySystem {
         this.initializeTraits();
         this.initializeState();
         this.setupPersonalityMatrix();
-        systemCore.logSystem('Sistema de personalidad V4 inicializado');
+        this._lastSavedTraits = { ...this.traits };
+        this._lastSavedAt = 0;
+        systemCore.logSystem('Sistema de personalidad V4.1 inicializado');
     }
 
     initializeTraits() {
@@ -40,32 +58,25 @@ export class PersonalitySystem {
             agreeableness: base.agreeableness,
             neuroticism: base.neuroticism
         };
-        // FIX: la función ignora el argumento, se llama sin él
         this.updateSubTraits();
     }
 
     initializeState() {
         this.state = {
-            estabilidad: 0.7,
-            flexibilidad: 0.5,
-            adaptabilidad: 0.6,
-            integridad: 0.8,
-            madurez: 0.4,
-            sabiduria: 0.3,
-            autenticidad: 0.6,
-            bienestar: 0.6,
-            satisfaccion: 0.5,
-            proposito: 0.4
+            estabilidad: 0.7, flexibilidad: 0.5, adaptabilidad: 0.6,
+            integridad: 0.8, madurez: 0.4, sabiduria: 0.3,
+            autenticidad: 0.6, bienestar: 0.6, satisfaccion: 0.5,
+            proposito: 0.4, autoconocimiento: 0.5
         };
         this.personalityDevelopment = 0;
         this.lastUpdateTime = systemCore.systemTime;
+        this._criticalCooldown = 0;
     }
 
     setupPersonalityMatrix() {
         this.updatePersonalityMatrix();
     }
 
-    // FIX: firma sin argumento (antes recibía 0 y lo ignoraba)
     updateSubTraits() {
         const t = this.traits;
         this.subTraits = {
@@ -85,7 +96,9 @@ export class PersonalitySystem {
             vulnerability: 0.5 + (t.neuroticism - 0.5) * 0.5,
             moodiness: 0.5 + (t.neuroticism - 0.5) * 0.4
         };
-        Object.keys(this.subTraits).forEach(k => this.subTraits[k] = this.clamp(this.subTraits[k], 0, 1));
+        for (const k of Object.keys(this.subTraits)) {
+            this.subTraits[k] = this.clamp(this.subTraits[k], 0, 1);
+        }
     }
 
     updatePersonalityMatrix() {
@@ -120,11 +133,13 @@ export class PersonalitySystem {
     }
 
     onEvent(cb) { this.eventListeners.push(cb); }
+
     emitEvent(type, data) {
-        this.eventListeners.forEach(cb => {
-            try { cb({ type, data, module: 'personality' }); }
+        const payload = { type, data, module: 'personality', simTime: systemCore.systemTime };
+        for (const cb of this.eventListeners) {
+            try { cb(payload); }
             catch (err) { console.error('❌ pers listener:', err); }
-        });
+        }
     }
 
     update(input, deltaTime) {
@@ -134,22 +149,15 @@ export class PersonalitySystem {
         this.applyEmotionalInfluences(input.emotional, deltaTime);
         this.applyBiochemicalInfluences(input.biochemical, deltaTime);
         this.developPersonality(input, deltaTime);
-        this.updatePersonalityMatrix();
         this.applyHomeostasis();
 
-        systemCore.queuePersistence('personality', () => {
-            if (systemCore.database?.isInitialized) {
-                return systemCore.database.savePersonality({
-                    openness: this.traits.openness,
-                    conscientiousness: this.traits.conscientiousness,
-                    extraversion: this.traits.extraversion,
-                    agreeableness: this.traits.agreeableness,
-                    neuroticism: this.traits.neuroticism
-                });
-            }
-        });
-
         return this.getState();
+    }
+
+    updateSlow(input, slowDelta) {
+        this.updatePersonalityMatrix();
+        this._maybeSaveAndLogEvolution();
+        this._criticalCooldown = Math.max(0, this._criticalCooldown - slowDelta);
     }
 
     applyEmotionalInfluences(emotionalState, deltaTime) {
@@ -183,16 +191,16 @@ export class PersonalitySystem {
     getDominantEmotion(e) {
         const emotions = ['alegria', 'tristeza', 'miedo', 'ira', 'confianza', 'sorpresa', 'asco'];
         let max = 0, dom = 'neutral';
-        emotions.forEach(em => {
+        for (const em of emotions) {
             if ((e[em] || 0) > max) { max = e[em]; dom = em; }
-        });
+        }
         return dom;
     }
 
     applyBiochemicalInfluences(bio, deltaTime) {
-        const dopamina = (bio.dopamina || 50) / 100;
-        const serotonina = (bio.serotonina || 50) / 100;
-        const cortisol = (bio.cortisol || 20) / 100;
+        const dopamina = (bio.dopamina ?? 50) / 100;
+        const serotonina = (bio.serotonina ?? 50) / 100;
+        const cortisol = (bio.cortisol ?? 20) / 100;
 
         this.traits.extraversion = this.clamp(this.traits.extraversion + (dopamina - 0.5) * 0.02 * deltaTime, 0.1, 0.9);
         this.traits.openness = this.clamp(this.traits.openness + (dopamina - 0.5) * 0.015 * deltaTime, 0.1, 0.9);
@@ -202,8 +210,8 @@ export class PersonalitySystem {
     }
 
     developPersonality(input, deltaTime) {
-        const learning = input.cognitive?.aprendizaje || 50;
-        const emotionalDepth = input.emotional?.intensidad || 0;
+        const learning = input.cognitive?.aprendizaje ?? 50;
+        const emotionalDepth = input.emotional?.intensidad ?? 0;
 
         this.personalityDevelopment = this.clamp(
             this.personalityDevelopment + (learning / 100) * 0.001 * deltaTime + emotionalDepth * 0.001 * deltaTime,
@@ -219,11 +227,108 @@ export class PersonalitySystem {
     }
 
     applyHomeostasis() {
-        Object.keys(this.traits).forEach(k => this.traits[k] = this.clamp(this.traits[k], 0.1, 0.9));
-        Object.keys(this.subTraits).forEach(k => this.subTraits[k] = this.clamp(this.subTraits[k], 0.1, 0.9));
-        Object.keys(this.state).forEach(k => {
-            if (typeof this.state[k] === 'number') this.state[k] = this.clamp(this.state[k], 0, 1);
+        for (const k of Object.keys(this.traits)) {
+            this.traits[k] = this.clamp(this.traits[k], 0.1, 0.9);
+        }
+        for (const k of Object.keys(this.subTraits)) {
+            this.subTraits[k] = this.clamp(this.subTraits[k], 0.1, 0.9);
+        }
+        for (const k of Object.keys(this.state)) {
+            if (typeof this.state[k] === 'number') {
+                this.state[k] = this.clamp(this.state[k], 0, 1);
+            }
+        }
+    }
+
+    /**
+     * Guarda personalidad si:
+     *  - Pasó al menos _saveIntervalSec desde el último guardado
+     *  - Y algún rasgo cambió > _evolThreshold
+     * Además, escribe evolución manual en personalidad_evolucion.
+     */
+    _maybeSaveAndLogEvolution() {
+        if (!systemCore.database?.isInitialized) return;
+
+        const now = Date.now();
+        const lastTraits = this._lastSavedTraits || { ...this.traits };
+
+        // Calcular deltas
+        const deltas = {
+            apertura: this.traits.openness - (lastTraits.openness ?? this.traits.openness),
+            conciencia: this.traits.conscientiousness - (lastTraits.conscientiousness ?? this.traits.conscientiousness),
+            extraversion: this.traits.extraversion - (lastTraits.extraversion ?? this.traits.extraversion),
+            amabilidad: this.traits.agreeableness - (lastTraits.agreeableness ?? this.traits.agreeableness),
+            neuroticismo: this.traits.neuroticism - (lastTraits.neuroticism ?? this.traits.neuroticism)
+        };
+
+        const anySignificant = Object.values(deltas).some(d => Math.abs(d) > this._evolThreshold);
+        const timeDue = (systemCore.systemTime - this._lastSavedAt) >= this._saveIntervalSec;
+
+        if (!anySignificant && !timeDue) return;
+
+        // Persistir snapshot
+        systemCore.queuePersistence('personality', async () => {
+            const db = systemCore.database;
+            if (!db?.isInitialized) return;
+
+            try {
+                await db.savePersonality({
+                    openness: this.traits.openness,
+                    conscientiousness: this.traits.conscientiousness,
+                    extraversion: this.traits.extraversion,
+                    agreeableness: this.traits.agreeableness,
+                    neuroticism: this.traits.neuroticism
+                }, systemCore.systemTime);
+
+                // Escribir evolución manual (el trigger AFTER UPDATE no dispara con INSERT)
+                if (anySignificant) {
+                    const map = {
+                        apertura: 'apertura',
+                        conciencia: 'conciencia',
+                        extraversion: 'extraversion',
+                        amabilidad: 'amabilidad',
+                        neuroticismo: 'neuroticismo'
+                    };
+                    for (const [key, delta] of Object.entries(deltas)) {
+                        if (Math.abs(delta) < this._evolThreshold) continue;
+                        const oldVal = lastTraits[this._traitKeyFor(key)] ?? this.traits[this._traitKeyFor(key)];
+                        const newVal = this.traits[this._traitKeyFor(key)];
+                        await db.db.run(
+                            `INSERT INTO personalidad_evolucion
+                                (timestamp, sim_time, rasgo, valor_anterior, valor_nuevo, delta, causa)
+                             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                            [now, systemCore.systemTime, map[key], oldVal, newVal, delta, 'evolucion_natural']
+                        );
+                    }
+                }
+            } catch (err) {
+                systemCore.logSystem(`Error guardando personalidad: ${err.message}`, 'warning');
+            }
         });
+
+        // Actualizar referencia solo si hubo cambio significativo
+        if (anySignificant) {
+            this._lastSavedTraits = { ...this.traits };
+        }
+        this._lastSavedAt = systemCore.systemTime;
+
+        // Emitir evento si un rasgo cambió mucho en el intervalo
+        for (const [k, d] of Object.entries(deltas)) {
+            if (Math.abs(d) > 0.08) {
+                this.emitEvent('personality_shift', { trait: k, delta: d });
+            }
+        }
+    }
+
+    _traitKeyFor(name) {
+        const map = {
+            apertura: 'openness',
+            conciencia: 'conscientiousness',
+            extraversion: 'extraversion',
+            amabilidad: 'agreeableness',
+            neuroticismo: 'neuroticism'
+        };
+        return map[name] || name;
     }
 
     applyModulation(mod) {
@@ -235,7 +340,6 @@ export class PersonalitySystem {
         if (mod.amabilidad !== undefined) this.traits.agreeableness = this.clamp(this.traits.agreeableness + mod.amabilidad, 0.1, 0.9);
         if (mod.neuroticismo !== undefined) this.traits.neuroticism = this.clamp(this.traits.neuroticism + mod.neuroticismo, 0.1, 0.9);
         if (mod.creatividad !== undefined) {
-            // Compatibilidad hacia atrás: algunos llamadores pasan {creatividad: x}
             this.traits.openness = this.clamp(this.traits.openness + mod.creatividad * 0.3, 0.1, 0.9);
         }
         this.updateSubTraits();
@@ -244,17 +348,43 @@ export class PersonalitySystem {
 
     getPersonalityDescription() {
         const d = [];
-        if (this.traits.openness > 0.7) d.push('abierto');
-        else if (this.traits.openness < 0.3) d.push('tradicional');
-        if (this.traits.conscientiousness > 0.7) d.push('disciplinado');
-        else if (this.traits.conscientiousness < 0.3) d.push('espontáneo');
-        if (this.traits.extraversion > 0.7) d.push('extrovertido');
-        else if (this.traits.extraversion < 0.3) d.push('introvertido');
-        if (this.traits.agreeableness > 0.7) d.push('empático');
-        else if (this.traits.agreeableness < 0.3) d.push('desafiante');
-        if (this.traits.neuroticism > 0.7) d.push('sensible');
-        else if (this.traits.neuroticism < 0.3) d.push('estable');
+        const t = this.traits;
+        if (t.openness > 0.7) d.push('abierto');
+        else if (t.openness < 0.3) d.push('tradicional');
+        if (t.conscientiousness > 0.7) d.push('disciplinado');
+        else if (t.conscientiousness < 0.3) d.push('espontáneo');
+        if (t.extraversion > 0.7) d.push('extrovertido');
+        else if (t.extraversion < 0.3) d.push('introvertido');
+        if (t.agreeableness > 0.7) d.push('empático');
+        else if (t.agreeableness < 0.3) d.push('desafiante');
+        if (t.neuroticism > 0.7) d.push('sensible');
+        else if (t.neuroticism < 0.3) d.push('estable');
         return d.join(', ') || 'equilibrado';
+    }
+
+    handleSituation(type, intensity) {
+        const effects = {
+            'recompensa': { estabilidad: 0.05 * intensity, bienestar: 0.05 * intensity },
+            'amenaza': { estabilidad: -0.05 * intensity, flexibilidad: -0.03 * intensity },
+            'interaccion_social': { bienestar: 0.05 * intensity, satisfaccion: 0.04 * intensity },
+            'insight': { sabiduria: 0.03 * intensity, autenticidad: 0.03 * intensity },
+            'logro': { proposito: 0.05 * intensity, satisfaccion: 0.05 * intensity },
+            'fracaso': { satisfaccion: -0.05 * intensity, estabilidad: -0.03 * intensity }
+        };
+        const eff = effects[type] || {};
+        for (const k of Object.keys(eff)) {
+            if (this.state[k] !== undefined) {
+                this.state[k] = this.clamp(this.state[k] + eff[k], 0, 1);
+            }
+        }
+    }
+
+    emergencyProtocol() {
+        this.applyModulation({
+            apertura: -0.02, conciencia: 0.02, neuroticismo: 0.03,
+            extraversion: -0.02, amabilidad: 0.01
+        });
+        this.emitEvent('emergency', { type: 'personality_emergency', severity: 0.85 });
     }
 
     getState() {
@@ -274,6 +404,8 @@ export class PersonalitySystem {
         this.initializeTraits();
         this.initializeState();
         this.setupPersonalityMatrix();
+        this._lastSavedTraits = { ...this.traits };
+        this._lastSavedAt = 0;
     }
 
     exportData() {
