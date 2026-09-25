@@ -1,5 +1,13 @@
 // src/core/SystemCore.js
-// Núcleo central que coordina todos los módulos — V4
+// Núcleo central que coordina todos los módulos — V4.1
+//
+// CAMBIOS CLAVE V4.1:
+//  - severity real en eventos críticos
+//  - persistencia de sistema_estados en cada flush
+//  - tick rápido (updateHz) + tick lento (slowTickHz)
+//  - emergency reset cancela timeouts pendientes
+//  - homeostasis delegada a cada módulo (no doble)
+//  - timestamps unificados (Date.now para persistir, systemTime para sim)
 
 import { TUNING } from '../config/tuning.js';
 
@@ -9,66 +17,34 @@ export class SystemCore {
         this.isRunning = false;
         this.autoEvolution = true;
         this.characterConfig = null;
-        this.systemTime = 0;
-        this.cycleCount = 0;
-        this.eventBus = (typeof EventTarget !== 'undefined') ? new EventTarget() : null;
-        this.eventHistory = [];
-        this.database = null;
-        this.eventListeners = [];
 
-        // Buffer centralizado de persistencia
+        // Tiempos
+        this.systemTime = 0;          // segundos simulados acumulados
+        this.cycleCount = 0;          // ciclos rápidos completados
+        this.slowCycleCount = 0;      // ciclos lentos completados
+        this._lastSlowTickAt = 0;     // systemTime del último slow tick
+
+        this.eventListeners = [];
+        this.eventHistory = [];
+
+        this.database = null;
+
+        // Buffer de persistencia (módulo → closure)
         this._pendingPersists = new Map();
-        // FIX: usar Date.now() en lugar de acumular deltaTime (que está capeado
-        // y puede retrasar el flush indefinidamente si el bucle va lento).
         this._lastPersistFlushAt = Date.now();
         this._persistFlushIntervalMs = TUNING.persistFlushInterval * 1000;
 
-        this.statistics = {
-            stabilityHistory: [],
-            performanceHistory: [],
-            emotionalStability: [],
-            cognitiveEfficiency: [],
-            consciousnessLevels: [],
-            patterns: { daily: {}, weekly: {}, monthly: {} },
-            predictions: { nextState: {}, riskAssessment: 0.2, growthPotential: 0.7 }
-        };
-
-        this.alerts = {
-            thresholds: {
-                critical: { ...TUNING.alerts.critical },
-                warning: { ...TUNING.alerts.warning }
-            },
-            history: [],
-            activeAlerts: []
-        };
-
-        this.initOrder = [
-            'environment',
-            'personality',
-            'biochemical',
-            'emotional',
-            'cognitive',
-            'memory',
-            'motivation',
-            'sleep',
-            'motor',
-            'control'
-        ];
-
-        // Cache para getState()
+        // Cache de estado
         this._stateCache = null;
         this._stateCacheAt = 0;
         this._stateCacheTTL = TUNING.stateCacheTTL;
 
-        this.initializeCore();
-    }
-
-    initializeCore() {
+        // Config
         this.coreConfig = {
             updateFrequency: TUNING.updateHz,
+            slowTickFrequency: TUNING.slowTickHz,
             maxCycleHistory: TUNING.maxCycleHistory,
             emergencyThreshold: TUNING.emergencyThreshold,
-            learningRate: 0.1,
             homeostasisRate: TUNING.homeostasisRate,
             consciousnessThreshold: TUNING.consciousnessThreshold
         };
@@ -83,13 +59,44 @@ export class SystemCore {
         };
 
         this.cycleHistory = [];
-        this.pendingEvents = [];
 
         this.humanParameters = {
             learningRate: 0.15,
             neuroplasticity: 0.8,
             consciousnessGrowth: 0.01
         };
+
+        this.statistics = {
+            stabilityHistory: [],
+            performanceHistory: [],
+            emotionalStability: [],
+            cognitiveEfficiency: [],
+            consciousnessLevels: []
+        };
+
+        this.alerts = {
+            thresholds: {
+                critical: { ...TUNING.alerts.critical },
+                warning: { ...TUNING.alerts.warning }
+            },
+            history: [],
+            activeAlerts: []
+        };
+
+        this.initOrder = [
+            'environment', 'personality', 'biochemical', 'emotional',
+            'cognitive', 'memory', 'motivation', 'sleep', 'motor', 'control'
+        ];
+
+        // Control de emergencia
+        this._emergencyRetries = 0;
+        this._emergencyTimeouts = new Set();
+
+        this.initializeCore();
+    }
+
+    initializeCore() {
+        console.log('⚙️ SystemCore V4.1 inicializado');
     }
 
     // ==================== REGISTRO DE MÓDULOS ====================
@@ -110,43 +117,77 @@ export class SystemCore {
 
     // ==================== PERSISTENCIA CENTRALIZADA ====================
 
-    /**
-     * Los módulos encolan una closure. SystemCore la ejecuta cada
-     * `_persistFlushIntervalMs`. Si el mismo módulo encola dos veces
-     * antes del flush, la última sobreescribe (debounce natural).
-     *
-     * NOTA: si necesitas persistir LISTAS (varios thoughts/decisions),
-     * no uses esta API con el mismo key dos veces — usa un buffer interno
-     * en el módulo y una sola closure que lo vacíe.
-     */
     queuePersistence(moduleName, fn) {
         if (typeof fn !== 'function') return;
         this._pendingPersists.set(moduleName, fn);
     }
 
     async flushPendingPersistence() {
-        if (this._pendingPersists.size === 0) return;
         if (!this.database?.isInitialized) {
-            this._pendingPersists.clear();
+            if (this._pendingPersists.size > 0) this._pendingPersists.clear();
             return;
         }
-        const fns = Array.from(this._pendingPersists.values());
+
+        // Persistencia del estado del sistema (una vez por flush)
+        try {
+            await this.database.saveSystemState({
+                stability: this.systemState.stability,
+                performance: this.systemState.performance,
+                consciousnessLevel: this.systemState.consciousnessLevel,
+                integrity: this.systemState.integrity,
+                emergency: this.systemState.emergency,
+                activeAlerts: this.alerts.activeAlerts.length,
+                systemTime: this.systemTime,
+                cycleCount: this.cycleCount
+            });
+        } catch (err) {
+            this.logSystem(`Error persistiendo estado del sistema: ${err.message}`, 'warning');
+        }
+
+        if (this._pendingPersists.size === 0) return;
+
+        const entries = Array.from(this._pendingPersists.entries());
         this._pendingPersists.clear();
-        for (const fn of fns) {
+
+        for (const [name, fn] of entries) {
             try { await fn(); }
-            catch (err) { this.logSystem(`Error persistiendo: ${err.message}`, 'warning'); }
+            catch (err) {
+                this.logSystem(`Error persistiendo "${name}": ${err.message}`, 'warning');
+            }
         }
     }
 
     // ==================== UTILIDADES DE TIEMPO ====================
 
     /**
-     * Hora circadiana real (0–24) basada en reloj UTC.
+     * Hora circadiana (0–24) según TUNING.circadian.
+     * - useLocalTime=true (default): hora local del sistema.
+     * - timezone especificado: usa Intl para esa zona.
      */
     getCircadianHour() {
-        const now = Date.now();
-        const dayMs = now % TUNING.circadian.msPerDay;
-        return dayMs / 3600000;
+        const cfg = TUNING.circadian;
+        if (cfg.timezone) {
+            try {
+                const fmt = new Intl.DateTimeFormat('en-GB', {
+                    timeZone: cfg.timezone,
+                    hour: 'numeric',
+                    minute: 'numeric',
+                    hour12: false
+                });
+                const parts = fmt.formatToParts(new Date());
+                const h = parseInt(parts.find(p => p.type === 'hour').value, 10) || 0;
+                const m = parseInt(parts.find(p => p.type === 'minute').value, 10) || 0;
+                return h + m / 60;
+            } catch (_) {
+                // Fallback a local si la timezone es inválida
+            }
+        }
+        if (cfg.useLocalTime) {
+            const d = new Date();
+            return d.getHours() + d.getMinutes() / 60;
+        }
+        // UTC
+        return (Date.now() % cfg.msPerDay) / 3600000;
     }
 
     // ==================== EVENTOS ====================
@@ -156,15 +197,10 @@ export class SystemCore {
     }
 
     emitEvent(type, data) {
-        const payload = { type, data, time: this.systemTime };
-        this.eventListeners.forEach(cb => {
+        const payload = { type, data, simTime: this.systemTime, wallTime: Date.now() };
+        for (const cb of this.eventListeners) {
             try { cb(payload); }
             catch (err) { console.error('❌ Listener error:', err); }
-        });
-        if (this.eventBus?.dispatchEvent && typeof CustomEvent !== 'undefined') {
-            try {
-                this.eventBus.dispatchEvent(new CustomEvent(type, { detail: data }));
-            } catch (_) { /* noop en Node 18 */ }
         }
     }
 
@@ -205,7 +241,7 @@ export class SystemCore {
             this.setupEventListeners();
             this.isRunning = true;
             this._lastPersistFlushAt = Date.now();
-            this.logSystem('Sistema nervioso central V4 inicializado completamente');
+            this.logSystem('Sistema nervioso central V4.1 inicializado completamente');
 
             this.dispatchEvent('system_initialized', {
                 config: this.characterConfig,
@@ -220,31 +256,66 @@ export class SystemCore {
     }
 
     setupEventListeners() {
-        this.modules.forEach((module, name) => {
+        for (const [name, module] of this.modules) {
             if (module && typeof module.onEvent === 'function') {
-                module.onEvent((event) => this.handleModuleEvent(name, event));
+                try {
+                    module.onEvent((event) => this.handleModuleEvent(name, event));
+                } catch (err) {
+                    this.logSystem(`No se pudo suscribir a ${name}: ${err.message}`, 'warning');
+                }
             }
-        });
-    }
-
-    handleModuleEvent(moduleName, event) {
-        const record = { module: moduleName, event, timestamp: this.systemTime };
-        this.eventHistory.push(record);
-        if (this.eventHistory.length > TUNING.maxEventHistory) this.eventHistory.shift();
-
-        if (event?.type === 'critical') {
-            this.handleCriticalEvent(moduleName, event);
         }
     }
 
-    handleCriticalEvent(moduleName, event) {
+    handleModuleEvent(moduleName, event) {
+        if (!event || !event.type) return;
+
+        this.eventHistory.push({ module: moduleName, event, simTime: this.systemTime });
+        if (this.eventHistory.length > TUNING.maxEventHistory) this.eventHistory.shift();
+
+        // FIX: severity ya no depende de `event.severity` porque los módulos
+        // no siempre lo emiten. Derivamos de `type` como fallback.
+        const severity = this._deriveSeverity(event);
+
+        if (severity >= 0.8) {
+            this.handleCriticalEvent(moduleName, event, severity);
+        } else if (severity >= 0.5) {
+            this.addAlert('warning', `${moduleName}: ${event.type}`, event);
+        }
+    }
+
+    _deriveSeverity(event) {
+        if (typeof event.severity === 'number') return event.severity;
+        switch (event.type) {
+            case 'critical':
+            case 'bio_critical':
+            case 'emotional_emergency':
+            case 'cognitive_emergency':
+                return 0.9;
+            case 'warning':
+            case 'bio_warning':
+                return 0.6;
+            case 'emergency':
+                return 0.95;
+            default:
+                return 0;
+        }
+    }
+
+    handleCriticalEvent(moduleName, event, severity) {
         this.systemState.lastCriticalEvent = {
             module: moduleName,
             event,
-            time: this.systemTime
+            severity,
+            simTime: this.systemTime,
+            wallTime: Date.now()
         };
-        this.dispatchEvent('critical_event', { module: moduleName, event });
-        if ((event?.severity || 0) > 0.8) this.triggerEmergencyProtocol();
+        this.addAlert('critical', `${moduleName}: ${event.type}`, { severity, ...event });
+        this.dispatchEvent('critical_event', { module: moduleName, event, severity });
+
+        if (severity > TUNING.emergencyThreshold) {
+            this.triggerEmergencyProtocol();
+        }
     }
 
     // ==================== BUCLE PRINCIPAL ====================
@@ -262,7 +333,8 @@ export class SystemCore {
             const input = this.collectSystemInput();
             const results = this.processCascade(input, deltaTime);
 
-            this.applyGlobalHomeostasis(deltaTime);
+            // Homeostasis global: SOLO consolidar, no duplicar la de cada módulo
+            this.consolidateHomeostasis(results, deltaTime);
             this.checkSystemHealth(results);
             if (this.autoEvolution) this.autoEvolve(results);
 
@@ -271,36 +343,41 @@ export class SystemCore {
             this.updateConsciousness(results);
             this.recordCycle(results);
 
-            // FIX: flush por reloj real, no por deltaTime capeado
+            // Slow tick: módulos que declaran updateSlow()
+            const slowInterval = 1 / this.coreConfig.slowTickFrequency;
+            if ((this.systemTime - this._lastSlowTickAt) >= slowInterval) {
+                this._lastSlowTickAt = this.systemTime;
+                this.slowCycleCount++;
+                this.processSlowCascade(input, deltaTime);
+            }
+
+            // Flush por reloj real
             const now = Date.now();
             if (now - this._lastPersistFlushAt >= this._persistFlushIntervalMs) {
                 this._lastPersistFlushAt = now;
-                this.flushPendingPersistence().catch(() => { /* silencioso */ });
+                this.flushPendingPersistence().catch(() => {});
             }
         } catch (error) {
-            // FIX: un error de JS en un ciclo NO debe activar el protocolo de
-            // emergencia (que está pensado para estados fisiológicos críticos).
-            // Solo logueamos y dejamos que el sistema siga. La emergencia la
-            // dispara checkSystemHealth() cuando los valores están fuera de rango.
-            this.logSystem(`Error en ciclo de actualización: ${error.message}`, 'error');
+            // Un error de JS no activa emergencia. Solo loguea.
+            this.logSystem(`Error en ciclo: ${error.message}`, 'error');
             if (this.cycleCount % 100 === 0) console.error(error.stack);
         }
     }
 
     collectSystemInput() {
-        return {
-            biochemical: this.modules.get('biochemical')?.getState() || {},
-            emotional: this.modules.get('emotional')?.getState() || {},
-            cognitive: this.modules.get('cognitive')?.getState() || {},
-            personality: this.modules.get('personality')?.getState() || {},
-            environmental: this.modules.get('environment')?.getState() || {},
-            motivation: this.modules.get('motivation')?.getState() || {},
-            memory: this.modules.get('memory')?.getState() || {},
-            motor: this.modules.get('motor')?.getState() || {},
-            sleep: this.modules.get('sleep')?.getState() || {},
+        const input = {
             time: this.systemTime,
-            cycle: this.cycleCount
+            cycle: this.cycleCount,
+            slowCycle: this.slowCycleCount
         };
+        for (const [name, module] of this.modules) {
+            try {
+                input[name] = module.getState ? module.getState() : {};
+            } catch (err) {
+                input[name] = { error: err.message };
+            }
+        }
+        return input;
     }
 
     processCascade(input, deltaTime) {
@@ -308,61 +385,91 @@ export class SystemCore {
         const M = this.modules;
 
         const env = M.get('environment');
-        if (env) results.environment = env.update(input, deltaTime);
+        if (env?.update) results.environment = env.update(input, deltaTime);
 
         const personality = M.get('personality');
-        if (personality) results.personality = personality.update(input, deltaTime);
+        if (personality?.update) {
+            results.personality = personality.update(
+                { ...input, environment: results.environment }, deltaTime
+            );
+        }
 
         const bio = M.get('biochemical');
-        if (bio) {
+        if (bio?.update) {
             results.biochemical = bio.update(
-                { ...input, environmental: results.environment },
+                { ...input, environment: results.environment },
                 deltaTime
             );
         }
 
         const emo = M.get('emotional');
-        if (emo) {
+        if (emo?.update) {
             results.emotional = emo.update(
-                { ...input, biochemical: results.biochemical, personality: results.personality },
+                {
+                    ...input,
+                    biochemical: results.biochemical,
+                    personality: results.personality,
+                    environment: results.environment
+                },
                 deltaTime
             );
         }
 
         const cog = M.get('cognitive');
-        if (cog) {
+        if (cog?.update) {
             results.cognitive = cog.update(
-                { ...input, biochemical: results.biochemical, emotional: results.emotional, personality: results.personality },
+                {
+                    ...input,
+                    biochemical: results.biochemical,
+                    emotional: results.emotional,
+                    personality: results.personality
+                },
                 deltaTime
             );
         }
 
         const mem = M.get('memory');
-        if (mem) {
+        if (mem?.update) {
             results.memory = mem.update(
-                { ...input, biochemical: results.biochemical, emotional: results.emotional, cognitive: results.cognitive },
+                {
+                    ...input,
+                    biochemical: results.biochemical,
+                    emotional: results.emotional,
+                    cognitive: results.cognitive,
+                    environment: results.environment
+                },
                 deltaTime
             );
         }
 
         const mot = M.get('motivation');
-        if (mot) {
+        if (mot?.update) {
             results.motivation = mot.update(
-                { ...input, biochemical: results.biochemical, emotional: results.emotional, cognitive: results.cognitive },
+                {
+                    ...input,
+                    biochemical: results.biochemical,
+                    emotional: results.emotional,
+                    cognitive: results.cognitive
+                },
                 deltaTime
             );
         }
 
         const sleep = M.get('sleep');
-        if (sleep) {
+        if (sleep?.update) {
             results.sleep = sleep.update(
-                { ...input, biochemical: results.biochemical, emotional: results.emotional, cognitive: results.cognitive },
+                {
+                    ...input,
+                    biochemical: results.biochemical,
+                    emotional: results.emotional,
+                    cognitive: results.cognitive
+                },
                 deltaTime
             );
         }
 
         const motor = M.get('motor');
-        if (motor) {
+        if (motor?.update) {
             results.motor = motor.update(
                 {
                     ...input,
@@ -378,61 +485,65 @@ export class SystemCore {
         return results;
     }
 
-    applyGlobalHomeostasis(deltaTime) {
-        const biochemical = this.modules.get('biochemical');
-        if (!biochemical) return;
-        const bioState = biochemical.getState();
-        const rate = this.coreConfig.homeostasisRate * deltaTime;
-
-        const adjustments = {
-            cortisol: bioState.cortisol > 70 ? -0.5 : (bioState.cortisol < 20 ? 0.3 : 0),
-            energia: bioState.energia < 25 ? 0.3 : (bioState.energia > 80 ? -0.1 : 0),
-            oxigeno: bioState.oxigeno < 30 ? 0.5 : 0,
-            toxicidad: bioState.toxicidad > 60 ? -0.4 : 0
-        };
-
-        Object.entries(adjustments).forEach(([key, val]) => {
-            const adjustment = val * rate;
-            if (adjustment !== 0) {
-                try { biochemical.applyModulation({ [key]: adjustment }); }
-                catch (_) { /* noop */ }
+    processSlowCascade(input, deltaTime) {
+        const slowDelta = 1 / this.coreConfig.slowTickFrequency;
+        for (const [name, module] of this.modules) {
+            if (module?.updateSlow) {
+                try { module.updateSlow(input, slowDelta); }
+                catch (err) {
+                    this.logSystem(`Error slow en ${name}: ${err.message}`, 'warning');
+                }
             }
-        });
+        }
+    }
 
-        const stabilityTrend = (bioState.oxigeno / 100 + bioState.energia / 100 + (1 - bioState.toxicidad / 100)) / 3;
-        this.systemState.stability = this.systemState.stability * 0.95 + stabilityTrend * 0.05;
+    /**
+     * Solo consolida el estado global. La homeostasis real la aplica cada
+     * módulo internamente. Antes este método duplicaba la de Biochemical.
+     */
+    consolidateHomeostasis(results, deltaTime) {
+        const bio = results.biochemical || this.modules.get('biochemical')?.getState?.() || {};
+        const oxigeno = (bio.oxigeno ?? 50) / 100;
+        const energia = (bio.energia ?? 50) / 100;
+        const toxicidad = 1 - ((bio.toxicidad ?? 0) / 100);
+        const trend = (oxigeno + energia + toxicidad) / 3;
+        // Suavizado exponencial hacia el trend
+        this.systemState.stability = this.systemState.stability * 0.95 + trend * 0.05;
+        this.systemState.integrity = Math.min(1, this.systemState.integrity * 0.999 + 0.001);
     }
 
     checkSystemHealth(results) {
-        const bio = results.biochemical || this.modules.get('biochemical')?.getState() || {};
-        const emo = results.emotional || this.modules.get('emotional')?.getState() || {};
+        const bio = results.biochemical || this.modules.get('biochemical')?.getState?.() || {};
+        const emo = results.emotional || this.modules.get('emotional')?.getState?.() || {};
 
         const criticals = [
-            { c: bio.oxigeno < 10, m: 'Oxígeno crítico' },
-            { c: bio.toxicidad > 90, m: 'Toxicidad crítica' },
-            { c: bio.energia < 5, m: 'Energía crítica' },
-            { c: bio.cortisol > 95, m: 'Estrés crítico' },
-            { c: emo.miedo > 90, m: 'Miedo extremo' },
+            { c: (bio.oxigeno ?? 100) < 10, m: 'Oxígeno crítico' },
+            { c: (bio.toxicidad ?? 0) > 90, m: 'Toxicidad crítica' },
+            { c: (bio.energia ?? 100) < 5, m: 'Energía crítica' },
+            { c: (bio.cortisol ?? 0) > 95, m: 'Estrés crítico' },
+            { c: (emo.miedo ?? 0) > 90, m: 'Miedo extremo' },
             { c: this.systemState.stability < 0.2, m: 'Sistema inestable' }
         ];
 
-        if (criticals.some(x => x.c)) {
-            const msgs = criticals.filter(x => x.c).map(x => x.m).join(', ');
+        const triggered = criticals.filter(x => x.c);
+        if (triggered.length > 0) {
+            const msgs = triggered.map(x => x.m).join(', ');
             this.logSystem(`Condiciones críticas: ${msgs}`, 'error');
+            this.addAlert('critical', msgs, { source: 'checkSystemHealth' });
             this.triggerEmergencyProtocol();
         }
 
         const warnings = [
-            { c: bio.oxigeno < 25, m: 'Oxígeno bajo' },
-            { c: bio.toxicidad > 70, m: 'Toxicidad elevada' },
-            { c: bio.energia < 20, m: 'Energía baja' },
-            { c: bio.cortisol > 70, m: 'Estrés elevado' },
+            { c: (bio.oxigeno ?? 100) < 25, m: 'Oxígeno bajo' },
+            { c: (bio.toxicidad ?? 0) > 70, m: 'Toxicidad elevada' },
+            { c: (bio.energia ?? 100) < 20, m: 'Energía baja' },
+            { c: (bio.cortisol ?? 0) > 70, m: 'Estrés elevado' },
             { c: this.systemState.stability < 0.5, m: 'Estabilidad disminuida' }
         ];
 
-        warnings.forEach(w => {
-            if (w.c) this.dispatchEvent('warning', { message: w.m, type: 'warning' });
-        });
+        for (const w of warnings) {
+            if (w.c) this.addAlert('warning', w.m, { source: 'checkSystemHealth' });
+        }
     }
 
     updateStatistics(results) {
@@ -441,14 +552,15 @@ export class SystemCore {
 
         this.statistics.stabilityHistory.push(this.systemState.stability);
         this.statistics.performanceHistory.push(this.systemState.performance);
-        this.statistics.emotionalStability.push(emo.estabilidad || 50);
-        this.statistics.cognitiveEfficiency.push(cog.fluidez || 50);
+        this.statistics.emotionalStability.push(emo.estabilidad ?? 50);
+        this.statistics.cognitiveEfficiency.push(cog.fluidez ?? 50);
+        this.statistics.consciousnessLevels.push(this.systemState.consciousnessLevel);
 
         const max = TUNING.maxStabilityHistory;
-        ['stabilityHistory', 'performanceHistory', 'emotionalStability', 'cognitiveEfficiency']
-            .forEach(k => {
-                if (this.statistics[k].length > max) this.statistics[k] = this.statistics[k].slice(-max);
-            });
+        for (const k of ['stabilityHistory', 'performanceHistory', 'emotionalStability', 'cognitiveEfficiency', 'consciousnessLevels']) {
+            const arr = this.statistics[k];
+            if (arr.length > max) this.statistics[k] = arr.slice(-max);
+        }
     }
 
     updateConsciousness(results) {
@@ -457,9 +569,9 @@ export class SystemCore {
         const sleep = results.sleep || {};
 
         let consciousness = 0.1;
-        consciousness += (emotional.bienestar || 0) / 100 * 0.2;
-        consciousness += (cognitive.autoconciencia || 0) / 100 * 0.3;
-        consciousness += (cognitive.fluidez || 0) / 100 * 0.15;
+        consciousness += (emotional.bienestar ?? 0) / 100 * 0.2;
+        consciousness += (cognitive.autoconciencia ?? 0) / 100 * 0.3;
+        consciousness += (cognitive.fluidez ?? 0) / 100 * 0.15;
         consciousness += this.systemState.stability * 0.2;
 
         if (sleep.estado && sleep.estado !== 'despierto') consciousness *= 0.3;
@@ -467,17 +579,17 @@ export class SystemCore {
         this.systemState.consciousnessLevel = Math.min(1, consciousness);
         this.systemState.performance = this.systemState.stability * 0.6 + consciousness * 0.4;
 
-        if (this.cycleCount % 10 === 0) {
+        if (this.cycleCount % 40 === 0) {
             this.dispatchEvent('consciousness_update', {
                 level: this.systemState.consciousnessLevel,
-                time: this.systemTime
+                simTime: this.systemTime
             });
         }
     }
 
     recordCycle(results) {
         this.cycleHistory.push({
-            timestamp: this.systemTime,
+            simTime: this.systemTime,
             cycle: this.cycleCount,
             stability: this.systemState.stability,
             performance: this.systemState.performance,
@@ -500,7 +612,7 @@ export class SystemCore {
                 if (performance < 0.6) {
                     personality.applyModulation({ madurez: 0.01, desarrollo: 0.005 });
                 } else if (consciousness > 0.5) {
-                    personality.applyModulation({ apertura: 0.01, creatividad: 0.01 });
+                    personality.applyModulation({ apertura: 0.01 });
                 }
             } catch (err) {
                 if (this.cycleCount % 500 === 0) {
@@ -510,6 +622,8 @@ export class SystemCore {
         }
         this.humanParameters.learningRate = 0.1 + consciousness * 0.1;
     }
+
+    // ==================== ALERTAS ====================
 
     checkAlerts(results) {
         const bio = results.biochemical || {};
@@ -522,11 +636,6 @@ export class SystemCore {
             { value: this.systemState.stability * 100, threshold: thresholds.critical.stability, m: 'Estabilidad crítica', invert: false }
         ];
 
-        criticalChecks.forEach(c => {
-            const triggered = c.invert ? c.value > c.threshold : c.value < c.threshold;
-            if (triggered) this.addAlert('critical', c.m, { value: c.value, threshold: c.threshold });
-        });
-
         const warningChecks = [
             { value: bio.oxigeno ?? 100, threshold: thresholds.warning.oxygen, m: 'Oxígeno bajo', invert: false },
             { value: bio.energia ?? 100, threshold: thresholds.warning.energy, m: 'Energía baja', invert: false },
@@ -534,14 +643,20 @@ export class SystemCore {
             { value: this.systemState.stability * 100, threshold: thresholds.warning.stability, m: 'Estabilidad disminuida', invert: false }
         ];
 
-        warningChecks.forEach(c => {
+        for (const c of criticalChecks) {
+            const triggered = c.invert ? c.value > c.threshold : c.value < c.threshold;
+            if (triggered) this.addAlert('critical', c.m, { value: c.value, threshold: c.threshold });
+        }
+
+        for (const c of warningChecks) {
             const triggered = c.invert ? c.value > c.threshold : c.value < c.threshold;
             if (triggered) this.addAlert('warning', c.m, { value: c.value, threshold: c.threshold });
-        });
+        }
 
+        // Limpiar alertas resueltas
+        const allChecks = criticalChecks.concat(warningChecks);
         this.alerts.activeAlerts = this.alerts.activeAlerts.filter(alert => {
-            const all = criticalChecks.concat(warningChecks);
-            const check = all.find(c => c.m === alert.message);
+            const check = allChecks.find(c => c.m === alert.message);
             if (!check) return true;
             return check.invert ? check.value > check.threshold : check.value < check.threshold;
         });
@@ -555,9 +670,10 @@ export class SystemCore {
             return;
         }
         const alert = {
-            id: Date.now() + Math.random(),
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             type, message, data,
-            timestamp: this.systemTime,
+            simTime: this.systemTime,
+            wallTime: Date.now(),
             count: 1,
             lastOccurrence: this.systemTime
         };
@@ -565,75 +681,135 @@ export class SystemCore {
         this.alerts.history.push(alert);
         if (this.alerts.history.length > 500) this.alerts.history.shift();
 
+        // Persistir alerta crítica (auditoría)
+        if (this.database?.isInitialized && type === 'critical') {
+            this.database.db?.run(
+                `INSERT INTO sistema_alertas (timestamp, sim_time, nivel, mensaje, modulo, resuelta)
+                 VALUES (?, ?, ?, ?, ?, 0)`,
+                [Date.now(), this.systemTime, 'critical', message, data?.source || 'core']
+            ).catch(() => {});
+        }
+
         this.dispatchEvent('alert', alert);
         if (type === 'critical') this.logSystem(`ALERTA CRÍTICA: ${message}`, 'error');
         else this.logSystem(`ADVERTENCIA: ${message}`, 'warning');
     }
 
+    // ==================== EMERGENCIA ====================
+
     triggerEmergencyProtocol() {
         if (this.systemState.emergency) return;
         this.systemState.emergency = true;
         this.logSystem('⚠️ PROTOCOLO DE EMERGENCIA ACTIVADO', 'error');
-        this.dispatchEvent('emergency', { time: this.systemTime, state: { ...this.systemState } });
-
-        this.modules.forEach(module => {
-            if (module && typeof module.emergencyProtocol === 'function') {
-                try { module.emergencyProtocol(); } catch (_) { /* noop */ }
-            }
+        this.dispatchEvent('emergency', {
+            simTime: this.systemTime,
+            wallTime: Date.now(),
+            state: { ...this.systemState }
         });
 
-        if (!this._emergencyRetries) this._emergencyRetries = 0;
-        this._emergencyRetries++;
+        for (const [, module] of this.modules) {
+            if (module && typeof module.emergencyProtocol === 'function') {
+                try { module.emergencyProtocol(); } catch (_) {}
+            }
+        }
 
-        if (this._emergencyRetries <= 12) {
-            setTimeout(() => this.resolveEmergency(), 5000).unref?.();
+        this._emergencyRetries = (this._emergencyRetries || 0) + 1;
+
+        if (this._emergencyRetries <= TUNING.emergencyRetryLimit) {
+            const t = setTimeout(() => {
+                this._emergencyTimeouts.delete(t);
+                this.resolveEmergency();
+            }, TUNING.emergencyRetryDelayMs);
+            if (t.unref) t.unref();
+            this._emergencyTimeouts.add(t);
         } else {
-            this.logSystem('⚠️ Emergencia persiste tras múltiples reintentos. Requiere intervención manual (POST /api/emergency/reset).', 'error');
-            this.dispatchEvent('emergency_stuck', { time: this.systemTime });
+            this.logSystem(
+                '⚠️ Emergencia persiste tras múltiples reintentos. Requiere POST /api/emergency/reset',
+                'error'
+            );
+            this.dispatchEvent('emergency_stuck', { simTime: this.systemTime });
         }
     }
 
     resolveEmergency() {
         const biochemical = this.modules.get('biochemical');
-        const bio = biochemical?.getState();
-        if (!bio) return;
+        const bio = biochemical?.getState?.();
+        if (!bio) {
+            this.systemState.emergency = false;
+            return;
+        }
 
-        const ok = bio.oxigeno > 20 && bio.toxicidad < 80 && bio.energia > 15 && bio.cortisol < 80;
+        const ok = (bio.oxigeno ?? 0) > 20 && (bio.toxicidad ?? 0) < 80
+                && (bio.energia ?? 0) > 15 && (bio.cortisol ?? 0) < 80;
+
         if (ok) {
             this.systemState.emergency = false;
             this._emergencyRetries = 0;
             this.logSystem('✅ Emergencia resuelta', 'system');
-            this.dispatchEvent('emergency_resolved', { time: this.systemTime });
+            this.dispatchEvent('emergency_resolved', { simTime: this.systemTime });
         } else {
-            setTimeout(() => this.resolveEmergency(), 5000).unref?.();
+            const t = setTimeout(() => {
+                this._emergencyTimeouts.delete(t);
+                this.resolveEmergency();
+            }, TUNING.emergencyRetryDelayMs);
+            if (t.unref) t.unref();
+            this._emergencyTimeouts.add(t);
         }
     }
 
     /**
-     * FIX: reset manual de emergencia. Útil cuando el protocolo automático
-     * se queda atascado (>12 reintentos) o cuando un admin quiere forzar
-     * la salida sin reiniciar todo el sistema.
+     * Reset manual. Cancela timeouts pendientes y limpia alertas.
      */
     resetEmergency() {
+        for (const t of this._emergencyTimeouts) clearTimeout(t);
+        this._emergencyTimeouts.clear();
+
+        const wasEmergency = this.systemState.emergency;
         this.systemState.emergency = false;
         this._emergencyRetries = 0;
         this.alerts.activeAlerts = [];
-        this.logSystem('🔓 Emergencia reiniciada manualmente', 'system');
-        this.dispatchEvent('emergency_reset', { time: this.systemTime });
+
+        this.logSystem(
+            wasEmergency ? '🔓 Emergencia reiniciada manualmente' : 'Sistema no estaba en emergencia',
+            'system'
+        );
+        this.dispatchEvent('emergency_reset', { simTime: this.systemTime, wasEmergency });
     }
 
     // ==================== SITUACIONES / CONFIG ====================
 
-    applySituation(situationType, intensity = 1.0) {
-        if (!this.isRunning) return;
-        this.logSystem(`Aplicando situación: ${situationType} (intensidad: ${intensity})`);
-        this.modules.forEach(module => {
+    applySituation(situationType, intensity = TUNING.situations.defaultIntensity) {
+        if (!this.isRunning) return { applied: false, reason: 'not_running' };
+        const clampedIntensity = Math.max(
+            TUNING.situations.minIntensity,
+            Math.min(TUNING.situations.maxIntensity, Number(intensity) || TUNING.situations.defaultIntensity)
+        );
+
+        this.logSystem(`Aplicando situación: ${situationType} (intensidad: ${clampedIntensity})`);
+
+        let applied = 0;
+        for (const [, module] of this.modules) {
             if (module && typeof module.handleSituation === 'function') {
-                try { module.handleSituation(situationType, intensity); }
-                catch (err) { this.logSystem(`Error aplicando situación en módulo: ${err.message}`, 'error'); }
+                try { module.handleSituation(situationType, clampedIntensity); applied++; }
+                catch (err) {
+                    this.logSystem(`Error aplicando situación en módulo: ${err.message}`, 'error');
+                }
             }
+        }
+
+        // Persistir evento de situación
+        if (this.database?.isInitialized) {
+            this.database.saveSituationEvent(situationType, clampedIntensity).catch(() => {});
+        }
+
+        this.dispatchEvent('situation_applied', {
+            situation: situationType,
+            intensity: clampedIntensity,
+            modulesApplied: applied,
+            simTime: this.systemTime
         });
-        this.dispatchEvent('situation_applied', { situation: situationType, intensity, time: this.systemTime });
+
+        return { applied: true, modulesApplied: applied, intensity: clampedIntensity };
     }
 
     changeCharacter(config) {
@@ -654,17 +830,19 @@ export class SystemCore {
 
     exportSystemData() {
         const modulesData = {};
-        this.modules.forEach((module, name) => {
+        for (const [name, module] of this.modules) {
             if (module && typeof module.exportData === 'function') {
                 try { modulesData[name] = module.exportData(); }
                 catch (err) { modulesData[name] = { error: err.message }; }
             }
-        });
-
+        }
         return {
-            version: '4.0.0',
+            version: '4.1.0',
             timestamp: Date.now(),
-            systemState: { ...this.systemState, time: this.systemTime, cycles: this.cycleCount },
+            simTime: this.systemTime,
+            cycleCount: this.cycleCount,
+            slowCycleCount: this.slowCycleCount,
+            systemState: { ...this.systemState },
             characterConfig: this.characterConfig,
             statistics: this.statistics,
             alerts: {
@@ -676,14 +854,18 @@ export class SystemCore {
         };
     }
 
-    exportData() {
-        return this.exportSystemData();
-    }
+    exportData() { return this.exportSystemData(); }
 
     resetSystem() {
         this.isRunning = false;
+
+        for (const t of this._emergencyTimeouts) clearTimeout(t);
+        this._emergencyTimeouts.clear();
+
         this.systemTime = 0;
         this.cycleCount = 0;
+        this.slowCycleCount = 0;
+        this._lastSlowTickAt = 0;
         this.cycleHistory = [];
         this.eventHistory = [];
         this.systemState.emergency = false;
@@ -692,21 +874,20 @@ export class SystemCore {
         this._stateCache = null;
         this._pendingPersists.clear();
         this._lastPersistFlushAt = Date.now();
+
         this.statistics = {
             stabilityHistory: [],
             performanceHistory: [],
             emotionalStability: [],
             cognitiveEfficiency: [],
-            consciousnessLevels: [],
-            patterns: { daily: {}, weekly: {}, monthly: {} },
-            predictions: { nextState: {}, riskAssessment: 0.2, growthPotential: 0.7 }
+            consciousnessLevels: []
         };
 
-        this.modules.forEach(module => {
+        for (const [, module] of this.modules) {
             if (module && typeof module.reset === 'function') {
-                try { module.reset(); } catch (_) { /* noop */ }
+                try { module.reset(); } catch (_) {}
             }
-        });
+        }
 
         this.logSystem('Sistema reiniciado completamente');
         this.isRunning = true;
@@ -718,17 +899,9 @@ export class SystemCore {
 
     logSystem(message, type = 'system') {
         const timestamp = new Date().toLocaleTimeString();
-        const entry = { timestamp, message, type, cycle: this.cycleCount, time: this.systemTime };
-
-        if (typeof window !== 'undefined' && window.dispatchEvent) {
-            try {
-                window.dispatchEvent(new CustomEvent('systemLog', { detail: entry }));
-            } catch (_) { /* noop */ }
-        }
-
-        const prefix = type === 'error' ? '❌' :
-                       type === 'warning' ? '⚠️' :
-                       type === 'debug' ? '🔍' : '📌';
+        const prefix = type === 'error' ? '❌'
+                     : type === 'warning' ? '⚠️'
+                     : type === 'debug' ? '🔍' : '📌';
 
         if (type === 'error' || type === 'warning' || process.env.VERBOSE_LOGS === 'true') {
             console.log(`${prefix} [${timestamp}] ${message}`);
@@ -740,8 +913,9 @@ export class SystemCore {
     getSystemState() {
         return {
             ...this.systemState,
-            time: this.systemTime,
+            simTime: this.systemTime,
             cycles: this.cycleCount,
+            slowCycles: this.slowCycleCount,
             character: this.characterConfig,
             modules: Array.from(this.modules.keys()),
             activeAlerts: this.alerts.activeAlerts.length
@@ -749,14 +923,12 @@ export class SystemCore {
     }
 
     isSystemStable() {
-        return this.systemState.stability > 0.6 &&
-               !this.systemState.emergency &&
-               this.alerts.activeAlerts.length === 0;
+        return this.systemState.stability > 0.6
+            && !this.systemState.emergency
+            && this.alerts.activeAlerts.length === 0;
     }
 
     getEvents() { return this.eventHistory.slice(-100); }
-
-    // ==================== API (con cache) ====================
 
     async getState() {
         const now = Date.now();
@@ -778,8 +950,10 @@ export class SystemCore {
                 performance: this.systemState.performance || 0,
                 consciousness: this.systemState.consciousnessLevel || 0,
                 emergency: this.systemState.emergency || false,
-                time: this.systemTime || 0,
-                cycles: this.cycleCount || 0
+                integrity: this.systemState.integrity || 1,
+                activeAlerts: this.alerts.activeAlerts.length,
+                simTime: this.systemTime,
+                cycles: this.cycleCount
             },
             modules: modulesState,
             timestamp: now
@@ -795,19 +969,18 @@ export class SystemCore {
             stability: this.systemState.stability || 0,
             performance: this.systemState.performance || 0,
             consciousness: this.systemState.consciousnessLevel || 0,
-            cycles: this.cycleCount || 0,
+            cycles: this.cycleCount,
+            slowCycles: this.slowCycleCount,
+            simTime: this.systemTime,
             modules: Array.from(this.modules.keys()),
-            alerts: this.alerts?.activeAlerts?.length || 0,
+            alerts: this.alerts.activeAlerts.length,
             pendingPersists: this._pendingPersists.size,
             timestamp: Date.now()
         };
 
         if (this.database && typeof this.database.getSystemMetrics === 'function') {
-            try {
-                metrics.database = await this.database.getSystemMetrics();
-            } catch (err) {
-                metrics.databaseError = err.message;
-            }
+            try { metrics.database = await this.database.getSystemMetrics(); }
+            catch (err) { metrics.databaseError = err.message; }
         }
         return metrics;
     }
@@ -815,15 +988,21 @@ export class SystemCore {
     async think(options, context) {
         const cognitive = this.modules.get('cognitive');
         if (!cognitive) return { decision: null, confidence: 0, error: 'Cognitive module not available' };
-        try { return cognitive.processDecision(context || {}, options || []); }
-        catch (err) { return { decision: null, confidence: 0, error: err.message }; }
+        try {
+            return cognitive.processDecision(context || {}, options || []);
+        } catch (err) {
+            return { decision: null, confidence: 0, error: err.message };
+        }
     }
 
     async remember(query) {
         const memory = this.modules.get('memory');
         if (!memory) return { memories: [], confidence: 0, error: 'Memory module not available' };
-        try { return memory.retrieveMemory(query, this.collectSystemInput()); }
-        catch (err) { return { memories: [], confidence: 0, error: err.message }; }
+        try {
+            return memory.retrieveMemory(query, this.collectSystemInput());
+        } catch (err) {
+            return { memories: [], confidence: 0, error: err.message };
+        }
     }
 
     async learn(skill, context, success) {
