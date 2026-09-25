@@ -1,6 +1,12 @@
 // src/conversation/IntentClassifier.js
 // Clasificador de intención con detección de negación, entidades y sentimiento.
 // Sin dependencias externas.
+//
+// FIX V4.2.1:
+//  - _analyzeSentiment ahora recibe el texto normalizado y detecta frases
+//    multi-palabra ("no puedo", "no sé", "no sirvo", ...) que antes estaban
+//    dentro de un Set de tokens individuales y NUNCA coincidían.
+//  - Eliminado duplicado 'inútil' en el léxico negativo.
 
 // ============================================================
 // PATRONES DE INTENCIÓN
@@ -254,6 +260,66 @@ const ENTITY_STOPWORDS = new Set([
 ]);
 
 // ============================================================
+// LÉXICO DE SENTIMIENTO
+// Separado en tokens individuales + frases multi-palabra.
+// FIX: antes las frases estaban mezcladas en el Set de tokens y
+// nunca coincidían porque tokens son palabras sueltas.
+// ============================================================
+
+const SENTIMENT_POSITIVE_WORDS = new Set([
+    'bien', 'bueno', 'buena', 'feliz', 'contento', 'contenta', 'alegre',
+    'genial', 'excelente', 'maravilloso', 'maravillosa', 'fantástico',
+    'estupendo', 'increíble', 'amor', 'amoroso', 'gracias', 'gracioso',
+    'mejor', 'mejorando', 'orgulloso', 'orgullosa', 'esperanza',
+    'bonito', 'bonita', 'lindo', 'linda', 'hermoso', 'hermosa',
+    'tranquilo', 'tranquila', 'calmado', 'calmada', 'paz',
+    'éxito', 'logro', 'logré', 'gané', 'aprendí', 'crecí', 'avancé',
+    'ilusionado', 'ilusionada', 'emocionado', 'emocionada',
+    'optimista', 'positivo', 'positiva', 'agradable', 'cómodo'
+]);
+
+const SENTIMENT_NEGATIVE_WORDS = new Set([
+    'mal', 'malo', 'mala', 'triste', 'tristeza', 'deprimido', 'deprimida',
+    'ansioso', 'ansiosa', 'ansiedad', 'miedo', 'terror', 'pánico',
+    'enfadado', 'enfadada', 'furioso', 'furiosa', 'ira', 'rabia',
+    'enojado', 'enojada', 'molesto', 'molesta', 'harto', 'harta',
+    'cansado', 'cansada', 'agotado', 'agotada', 'fatigado',
+    'solo', 'sola', 'soledad', 'perdido', 'perdida',
+    'dolor', 'duele', 'sufrir', 'sufro', 'sufrimiento',
+    'error', 'fracaso', 'fracasé', 'perdí', 'fallé', 'fallo',
+    'horrible', 'terrible', 'fatal', 'asqueroso', 'asquerosa',
+    'enfermo', 'enferma', 'enfermedad', 'muerto', 'muerte', 'murió',
+    'difícil', 'complicado', 'complicada', 'duro', 'dura',
+    'problema', 'problemas', 'conflicto', 'pelea', 'discusión',
+    'miente', 'mentira', 'traición', 'traicionó',
+    'inútil', 'inservible', 'incompetente'
+]);
+
+// Frases multi-palabra (se buscan con includes sobre el texto normalizado)
+const SENTIMENT_POSITIVE_PHRASES = [
+    'me siento bien',
+    'estoy bien',
+    'todo bien',
+    'mucho mejor',
+    'me alegra'
+];
+
+const SENTIMENT_NEGATIVE_PHRASES = [
+    'no puedo',
+    'no sé',
+    'no se',
+    'no sirvo',
+    'no valgo',
+    'no aguanto',
+    'no puedo más',
+    'no puedo mas',
+    'me siento mal',
+    'estoy harto',
+    'estoy harta',
+    'no tengo ganas'
+];
+
+// ============================================================
 // CLASIFICADOR
 // ============================================================
 
@@ -297,7 +363,7 @@ export class IntentClassifier {
         const questionType = this._detectQuestionType(normalized);
 
         // Sentimiento base
-        const { score: rawSentiment, hits: sentimentHits } = this._analyzeSentiment(tokens);
+        const { score: rawSentiment, hits: sentimentHits } = this._analyzeSentiment(tokens, normalized);
 
         // Intensidad
         let intensity = this._computeIntensity(tokens, metadata, rawSentiment);
@@ -440,47 +506,42 @@ export class IntentClassifier {
         return null;
     }
 
-    static _analyzeSentiment(tokens) {
-        // Léxico reducido pero funcional
-        const positive = new Set([
-            'bien', 'bueno', 'buena', 'feliz', 'contento', 'contenta', 'alegre',
-            'genial', 'excelente', 'maravilloso', 'maravillosa', 'fantástico',
-            'estupendo', 'increíble', 'amor', 'amoroso', 'gracias', 'gracioso',
-            'mejor', 'mejorando', 'orgulloso', 'orgullosa', 'esperanza',
-            'bonito', 'bonita', 'lindo', 'linda', 'hermoso', 'hermosa',
-            'tranquilo', 'tranquila', 'calmado', 'calmada', 'paz',
-            'éxito', 'logro', 'logré', 'gané', 'aprendí', 'crecí', 'avancé',
-            'ilusionado', 'ilusionada', 'emocionado', 'emocionada',
-            'optimista', 'positivo', 'positiva', 'agradable', 'cómodo'
-        ]);
-        const negative = new Set([
-            'mal', 'malo', 'mala', 'triste', 'tristeza', 'deprimido', 'deprimida',
-            'ansioso', 'ansiosa', 'ansiedad', 'miedo', 'terror', 'pánico',
-            'enfadado', 'enfadada', 'furioso', 'furiosa', 'ira', 'rabia',
-            'enojado', 'enojada', 'molesto', 'molesta', 'harto', 'harta',
-            'cansado', 'cansada', 'agotado', 'agotada', 'fatigado',
-            'solo', 'sola', 'soledad', 'perdido', 'perdida',
-            'dolor', 'duele', 'sufrir', 'sufro', 'sufrimiento',
-            'error', 'fracaso', 'fracasé', 'perdí', 'fallé', 'fallo',
-            'horrible', 'terrible', 'fatal', 'asqueroso', 'asquerosa',
-            'enfermo', 'enferma', 'enfermedad', 'muerto', 'muerte', 'murió',
-            'difícil', 'complicado', 'complicada', 'duro', 'dura',
-            'problema', 'problemas', 'conflicto', 'pelea', 'discusión',
-            'miente', 'mentira', 'traición', 'traicionó',
-            'no puedo', 'no sé', 'no sirvo', 'inútil', 'inútil'
-        ]);
-
+    /**
+     * FIX V4.2.1: antes las frases multi-palabra estaban dentro del Set de
+     * tokens y nunca coincidían (los tokens son palabras sueltas). Ahora
+     * separamos palabras de frases y buscamos las frases con includes()
+     * sobre el texto normalizado.
+     */
+    static _analyzeSentiment(tokens, normalizedText) {
         let sum = 0;
-        let hits = [];
+        const hits = [];
+
+        // 1) Tokens individuales
         for (const t of tokens) {
-            if (positive.has(t)) {
+            if (SENTIMENT_POSITIVE_WORDS.has(t)) {
                 sum += 1;
                 hits.push({ word: t, polarity: 'pos' });
-            } else if (negative.has(t)) {
+            } else if (SENTIMENT_NEGATIVE_WORDS.has(t)) {
                 sum -= 1;
                 hits.push({ word: t, polarity: 'neg' });
             }
         }
+
+        // 2) Frases multi-palabra (peso mayor porque son más específicas)
+        const text = normalizedText || tokens.join(' ');
+        for (const p of SENTIMENT_POSITIVE_PHRASES) {
+            if (text.includes(p)) {
+                sum += 1.5;
+                hits.push({ word: p, polarity: 'pos', phrase: true });
+            }
+        }
+        for (const p of SENTIMENT_NEGATIVE_PHRASES) {
+            if (text.includes(p)) {
+                sum -= 1.5;
+                hits.push({ word: p, polarity: 'neg', phrase: true });
+            }
+        }
+
         const score = sum / Math.max(1, Math.sqrt(tokens.length));
         return { score: Math.max(-1, Math.min(1, score)), hits };
     }
@@ -528,4 +589,4 @@ export class IntentClassifier {
         }
         return entities;
     }
-}
+            }
