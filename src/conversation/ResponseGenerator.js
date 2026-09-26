@@ -1,19 +1,12 @@
 // src/conversation/ResponseGenerator.js
 //
-// Genera respuestas en dos capas:
-//
-//   1. LLM (Ollama local por defecto). Lenguaje real, emergente, con voz.
-//      Es la vía primaria. Si está disponible, se usa siempre.
-//
-//   2. ConversationComposer. Gramática composicional sin plantillas.
-//      Solo entra si el LLM falla o no está configurado.
-//
-// El composer NO usa "si tristeza → di X". Planifica actos de habla y
-// construye oraciones desde unidades léxicas pequeñas + estado interno.
-//
-// El modo de operación se refleja en `source`: 'llm' o 'composer'.
+// V4.3:
+//  - Truncado suave a TUNING.chat.maxResponseChars (10000).
+//  - El composer también respeta el límite.
+//  - Si el LLM falla, el composer produce salida estructurada.
 
 import { systemCore } from '../core/SystemCore.js';
+import { TUNING } from '../config/tuning.js';
 import { LLMBridge } from './LLMBridge.js';
 import { ConversationComposer } from './ConversationComposer.js';
 
@@ -21,12 +14,9 @@ export class ResponseGenerator {
     constructor() {
         this.llm = new LLMBridge();
         this.composer = new ConversationComposer();
+        this.maxChars = TUNING.chat.maxResponseChars;
     }
 
-    /**
-     * Punto de entrada. Devuelve:
-     *   { text, source, emotion, emoji, reasoning, confidence, usedContext }
-     */
     async generate(input) {
         // 1. Intentar LLM
         if (this.llm.isConfigured()) {
@@ -53,14 +43,24 @@ export class ResponseGenerator {
         });
     }
 
-    // ============================================================
-    // HELPERS
-    // ============================================================
-
     _wrap({ text, source, input, confidence, reasoning }) {
         const emotion = this._deriveEmotion(input.emotionalState);
+
+        // Truncado suave si excede el límite
+        let finalText = text || '';
+        if (finalText.length > this.maxChars) {
+            finalText = finalText.substring(0, this.maxChars);
+            const lastDot = Math.max(
+                finalText.lastIndexOf('. '),
+                finalText.lastIndexOf('.\n')
+            );
+            if (lastDot > this.maxChars * 0.7) {
+                finalText = finalText.substring(0, lastDot + 1);
+            }
+        }
+
         return {
-            text,
+            text: finalText,
             source,
             emotion,
             emoji: this._emojiFor(emotion),
