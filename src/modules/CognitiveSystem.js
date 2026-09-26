@@ -1,5 +1,12 @@
 // src/modules/CognitiveSystem.js
-// V4.1
+// V4.3.1
+//
+// CAMBIOS CLAVE V4.3.1:
+//  - processThoughts ahora recibe emotionalState por parámetro (viene
+//    del cascade) en vez de consultar systemCore.modules.get('emotional').
+//    Esto respeta el aislamiento del cascade y evita dependencias
+//    circulares implícitas.
+//  - _pickThoughtType recibe `dom` directamente.
 //
 // CAMBIOS CLAVE V4.1:
 //  - getEmotionalBias lee del input emocional (antes era siempre 0)
@@ -56,7 +63,7 @@ export class CognitiveSystem {
         this.initializeState();
         this.setupCognitiveProcesses();
         this.setupGoalSystem();
-        systemCore.logSystem('Sistema cognitivo V4.1 inicializado');
+        systemCore.logSystem('Sistema cognitivo V4.3.1 inicializado');
     }
 
     setupCognitiveProfile() {
@@ -154,7 +161,8 @@ export class CognitiveSystem {
         this.manageCognitiveLoad(deltaTime);
         this.processCreativityAndInsight(deltaTime);
         this.updateCuriosity(input, deltaTime);
-        this.processThoughts(deltaTime);
+        // FIX V4.3.1: pasamos el estado emocional por parámetro.
+        this.processThoughts(deltaTime, input.emotional);
         this.updateMetacognition(deltaTime);
         this.applyCognitiveHomeostasis(deltaTime);
 
@@ -548,7 +556,12 @@ export class CognitiveSystem {
         this.state.insight = Math.max(0, (this.state.insight || 0) - 0.3 * realDt);
     }
 
-    processThoughts(dt) {
+    /**
+     * FIX V4.3.1: ahora recibe el estado emocional por parámetro en lugar
+     * de consultar systemCore.modules.get('emotional'). Esto respeta el
+     * aislamiento del cascade y evita dependencias implícitas.
+     */
+    processThoughts(dt, emotionalState) {
         const consciousness = systemCore.systemState?.consciousnessLevel || 0;
         if (consciousness < 0.15) return;
 
@@ -566,8 +579,7 @@ export class CognitiveSystem {
         this._lastThoughtAt = this.lastUpdateTime;
         this._thoughtMomentum = Math.min(1, this._thoughtMomentum + 0.2);
 
-        const emotionalModule = systemCore.modules.get('emotional');
-        const dom = emotionalModule?.getDominantEmotion?.()?.emotion || 'neutral';
+        const dom = this._getDominantEmotionFromState(emotionalState || {});
 
         // Continuidad temática: 60% continuar el tema previo, 40% nuevo
         let theme = this._thoughtTheme;
@@ -576,7 +588,7 @@ export class CognitiveSystem {
             this._thoughtTheme = theme;
         }
 
-        const type = this._pickThoughtType(consciousness, emotionalModule);
+        const type = this._pickThoughtType(consciousness, dom);
         const contenido = this._generateThoughtContent(type, theme, dom);
 
         const thought = {
@@ -609,8 +621,10 @@ export class CognitiveSystem {
         }
     }
 
-    _pickThoughtType(consciousness, emotionalModule) {
-        const dom = emotionalModule?.getDominantEmotion?.()?.emotion || 'neutral';
+    /**
+     * FIX V4.3.1: recibe `dom` (emoción dominante) ya calculada.
+     */
+    _pickThoughtType(consciousness, dom) {
         const weights = {
             consciente: 2,
             subconsciente: 1,
@@ -774,9 +788,8 @@ export class CognitiveSystem {
     }
 
     /**
-     * FIX CRÍTICO: antes leía `this.state.alegria` etc. que no existen en
-     * CognitiveSystem → siempre devolvía 0. Ahora recibe el estado emocional
-     * como argumento (viene del input).
+     * processDecision recibe el estado emocional vía context.emocional.
+     * FIX anterior: antes leía this.state.alegria etc. que no existen aquí.
      */
     processDecision(context, options) {
         if (!options || options.length === 0) return { decision: null, confidence: 0 };
@@ -874,12 +887,8 @@ export class CognitiveSystem {
     }
 
     /**
-     * FIX: penalización bidireccional. Antes `if (option.risk)` ignoraba
-     * risk=0 y no distinguía entre bajo/alto. Ahora:
-     *  - risk alto + tolerancia alta = bonus
-     *  - risk alto + tolerancia baja = penalización fuerte
-     *  - risk bajo + tolerancia baja = bonus
-     *  - risk bajo + tolerancia alta = ligera penalización
+     * Penalización bidireccional. Antes `if (option.risk)` ignoraba
+     * risk=0 y no distinguía entre bajo/alto.
      */
     evaluateOption(option, metrics, context) {
         let score = (option.utility || 50) * metrics.rationality;
