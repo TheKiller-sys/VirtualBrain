@@ -1,6 +1,16 @@
 // src/conversation/ConversationManager.js
 // Mantiene el contexto conversacional por sesión.
 //
+// V4.3.1:
+//  - FIX CRÍTICO: _pendingMessages ahora es Map<sessionId, Array>.
+//    Antes era un array global y en concurrencia las sesiones se
+//    mezclaban: si A grababa, B grababa, y A drenaba, A se llevaba
+//    los mensajes de B.
+//  - drainPendingMessages(sessionId) drena solo una sesión.
+//  - drainAllPendingMessages() para shutdown.
+//  - Cap por sesión (200 mensajes pendientes máximo).
+//  - _maybeCleanupSessions limpia también los pendientes.
+//
 // V4.3:
 //  - MAX_IN_MEMORY_TURNS subido a 300 para conversaciones largas.
 //  - Método getFullHistory() que devuelve todos los turnos de la sesión.
@@ -10,11 +20,13 @@ import { systemCore } from '../core/SystemCore.js';
 
 const MAX_IN_MEMORY_TURNS = 300;
 const MAX_TOPICS = 30;
+const MAX_PENDING_PER_SESSION = 200;
 
 export class ConversationManager {
     constructor() {
         this.sessions = new Map();
-        this._pendingMessages = [];
+        // Map<sessionId, Array<entry>> — cola de pendientes por sesión
+        this._pendingMessages = new Map();
         this._lastCleanupAt = Date.now();
         this._cleanupIntervalMs = 300000;
         this._sessionTTL = 7200000; // 2 horas sin actividad
@@ -89,7 +101,7 @@ export class ConversationManager {
         }
 
         // Encolar para persistencia (contenido hasta 10000 chars)
-        this._pendingMessages.push({
+        this._pushPending(sessionId, {
             sessionId,
             timestamp: entry.timestamp,
             simTime: entry.simTime,
@@ -101,11 +113,21 @@ export class ConversationManager {
             metadata: JSON.stringify({ entities: entry.entities })
         });
 
-        if (this._pendingMessages.length > 500) {
-            this._pendingMessages.splice(0, this._pendingMessages.length - 500);
-        }
-
         this._maybeCleanupSessions();
+    }
+
+    /**
+     * Añade un mensaje a la cola de la sesión, con cap por sesión.
+     */
+    _pushPending(sessionId, payload) {
+        if (!this._pendingMessages.has(sessionId)) {
+            this._pendingMessages.set(sessionId, []);
+        }
+        const arr = this._pendingMessages.get(sessionId);
+        arr.push(payload);
+        if (arr.length > MAX_PENDING_PER_SESSION) {
+            arr.splice(0, arr.length - MAX_PENDING_PER_SESSION);
+        }
     }
 
     getContext(sessionId = 'default') {
@@ -181,8 +203,29 @@ export class ConversationManager {
             }));
     }
 
-    drainPendingMessages() {
-        return this._pendingMessages.splice(0);
+    /**
+     * Drena los mensajes pendientes de UNA sesión.
+     * Antes drenaba globalmente y mezclaba sesiones concurrentes.
+     */
+    drainPendingMessages(sessionId) {
+        if (!sessionId) return [];
+        if (!this._pendingMessages.has(sessionId)) return [];
+        const arr = this._pendingMessages.get(sessionId);
+        this._pendingMessages.set(sessionId, []);
+        return arr;
+    }
+
+    /**
+     * Drena TODAS las sesiones (para shutdown).
+     * Devuelve un array plano con todos los mensajes pendientes.
+     */
+    drainAllPendingMessages() {
+        const out = [];
+        for (const arr of this._pendingMessages.values()) {
+            for (const m of arr) out.push(m);
+        }
+        this._pendingMessages.clear();
+        return out;
     }
 
     _maybeCleanupSessions() {
@@ -192,6 +235,7 @@ export class ConversationManager {
         for (const [id, session] of this.sessions) {
             if (now - session.lastActivityAt > this._sessionTTL) {
                 this.sessions.delete(id);
+                this._pendingMessages.delete(id);
             }
         }
     }
@@ -199,16 +243,18 @@ export class ConversationManager {
     getStats() {
         let totalTurns = 0;
         for (const s of this.sessions.values()) totalTurns += s.turnCount;
+        let pending = 0;
+        for (const arr of this._pendingMessages.values()) pending += arr.length;
         return {
             activeSessions: this.sessions.size,
             totalTurns,
-            pendingMessages: this._pendingMessages.length
+            pendingMessages: pending
         };
     }
 
     reset() {
         this.sessions.clear();
-        this._pendingMessages = [];
+        this._pendingMessages = new Map();
     }
 }
 
