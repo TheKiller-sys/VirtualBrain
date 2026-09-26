@@ -1,18 +1,13 @@
 // server.js
-// Cerebro Digital V4.2 — API server con conversación contextual
+// Cerebro Digital V4.3 — API con aprendizaje real desde el chat
 //
-// CAMBIOS V4.2:
-//  - IntentClassifier + ConversationManager + ResponseGenerator
-//  - Sesiones por header X-Session-Id
-//  - Endpoints /api/conversation/*
-//  - Persistencia de conversaciones por batch
-//  - /api/chat mantiene compat + campos nuevos
-//
-// CAMBIOS V4.2.1 (fixes):
-//  - intentToRegionType ahora lee de TUNING.intentToRegion (fuente única).
-//  - /api/chat incluye state.simTime para que el frontend lo muestre.
-//  - CORS en producción sin CORS_ORIGIN ya NO permite cualquier origen
-//    con credenciales: se bloquea cross-origin y se deja pasar same-origin.
+// CAMBIOS V4.3:
+//  - integrateChatIntoBrain(): cada mensaje alimenta MemorySystem,
+//    EmotionalSystem, CognitiveSystem y crea conexiones sinápticas.
+//  - Persistencia inmediata de cada turno (sin esperar al flush de 5s).
+//  - /api/conversation/history devuelve hasta 500 turnos (antes 50).
+//  - Mensajes de usuario hasta 10000 caracteres.
+//  - Respuestas hasta 10000 caracteres.
 
 import 'dotenv/config';
 import express from 'express';
@@ -28,7 +23,6 @@ import { IntentClassifier } from './src/conversation/IntentClassifier.js';
 import { conversationManager } from './src/conversation/ConversationManager.js';
 import { responseGenerator } from './src/conversation/ResponseGenerator.js';
 
-// Importar TODOS los módulos (efecto secundario: registro en systemCore)
 import './src/modules/EnvironmentSystem.js';
 import './src/modules/PersonalitySystem.js';
 import './src/modules/BiochemicalSystem.js';
@@ -43,8 +37,6 @@ import './src/modules/ControlSystem.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ==================== VALIDACIÓN DE ENTORNO ====================
-
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const IS_PROD = NODE_ENV === 'production';
 const PORT = Number(process.env.PORT) || 3000;
@@ -52,15 +44,11 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || null;
 
 if (IS_PROD && TUNING.validation.requireAdminTokenInProduction && !ADMIN_TOKEN) {
     console.error('❌ NODE_ENV=production requiere ADMIN_TOKEN configurado.');
-    console.error('   Genera uno con: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
     process.exit(1);
 }
 
-// ==================== APP ====================
-
 const app = express();
 app.set('trust proxy', 1);
-
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
 app.use(compression());
 
@@ -68,21 +56,6 @@ const allowedOrigins = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()).filter(Boolean)
     : null;
 
-if (IS_PROD && !allowedOrigins && TUNING.validation.requireCorsOriginInProduction) {
-    console.error('❌ NODE_ENV=production requiere CORS_ORIGIN configurado.');
-    process.exit(1);
-}
-
-// ------------------------------------------------------------------
-// FIX V4.2.1 — CORS
-// Antes: si no había CORS_ORIGIN en prod, se permitía CUALQUIER origen
-// con credenciales (`origin: true`). Riesgo innecesario.
-// Ahora:
-//   - Con CORS_ORIGIN definido  → whitelist estricta.
-//   - Prod sin CORS_ORIGIN     → `cb(null, false)` (sin cabeceras CORS).
-//     Mismo origen sigue funcionando, cross-origin lo bloquea el navegador.
-//   - Dev sin CORS_ORIGIN      → `true` (todo permitido, como antes).
-// ------------------------------------------------------------------
 const corsOriginOption = allowedOrigins
     ? (origin, cb) => {
         if (!origin) return cb(null, true);
@@ -104,8 +77,6 @@ app.use(express.static(path.join(__dirname, 'public'), {
     etag: true
 }));
 
-// ==================== RATE LIMITER ====================
-
 function rateLimit({ windowMs = 60000, max = 120 } = {}) {
     const hits = new Map();
     const cleanup = setInterval(() => {
@@ -121,11 +92,9 @@ function rateLimit({ windowMs = 60000, max = 120 } = {}) {
         if (!entry || now > entry.resetAt) entry = { count: 0, resetAt: now + windowMs };
         entry.count++;
         hits.set(key, entry);
-
         res.set('X-RateLimit-Limit', String(max));
         res.set('X-RateLimit-Remaining', String(Math.max(0, max - entry.count)));
         res.set('X-RateLimit-Reset', String(Math.ceil(entry.resetAt / 1000)));
-
         if (entry.count > max) {
             const retryAfter = Math.ceil((entry.resetAt - now) / 1000);
             res.set('Retry-After', String(retryAfter));
@@ -147,8 +116,6 @@ function requireAdmin(req, res, next) {
 
 app.use('/api/', rateLimit(TUNING.rateLimit.global));
 const chatLimiter = rateLimit(TUNING.rateLimit.chat);
-
-// ==================== HELPERS ====================
 
 function clamp01(v) { return Math.max(0, Math.min(1, v || 0)); }
 
@@ -173,17 +140,11 @@ function withTimeout(promise, ms, label = 'operation') {
     ]);
 }
 
-/**
- * Obtiene el sessionId del request.
- *  - Header X-Session-Id si existe y es válido.
- *  - Fallback: hash de IP + User-Agent.
- */
 function getSessionId(req) {
     const fromHeader = req.headers['x-session-id'];
     if (typeof fromHeader === 'string' && /^[a-zA-Z0-9_-]{4,64}$/.test(fromHeader)) {
         return fromHeader;
     }
-    // Fallback determinista
     const ip = req.ip || req.socket?.remoteAddress || 'unknown';
     const ua = req.headers['user-agent'] || 'unknown';
     let hash = 0;
@@ -195,7 +156,7 @@ function getSessionId(req) {
     return 'anon_' + Math.abs(hash).toString(36);
 }
 
-// ==================== REGIONES CEREBRALES ====================
+// ==================== REGIONES ====================
 
 function computeActivatedRegions(state, analysisType = 'general') {
     const modules = state?.modules || {};
@@ -214,10 +175,8 @@ function computeActivatedRegions(state, analysisType = 'general') {
 function computeRegion(name, cfg, modules) {
     let value = 0;
     let divisor = 1;
-
     for (const [moduleName, weights] of Object.entries(cfg.weights || {})) {
         const mod = modules[moduleName] || {};
-
         if (Array.isArray(weights)) {
             let sum = 0;
             for (const field of weights) sum += Number(mod[field]) || 0;
@@ -234,41 +193,129 @@ function computeRegion(name, cfg, modules) {
             divisor = Math.max(divisor, subDivisor);
         }
     }
-
     for (const w of Object.values(cfg.weights || {})) {
         if (w && typeof w === 'object' && w.divisor) divisor = w.divisor;
     }
-
     let result = value / Math.max(1, divisor);
     if (typeof cfg.base === 'number') result += cfg.base;
     return clamp01(result);
 }
 
-/**
- * FIX V4.2.1: ahora es un lookup directo contra TUNING.intentToRegion
- * (fuente única de verdad). Antes había un mapa hard-coded aquí que
- * devolvía claves ("tristeza", "ira", "fatiga", "trabajo"...) que no
- * existían en regions.*.boost y por tanto no activaban nada.
- */
 function intentToRegionType(intent) {
     return TUNING.intentToRegion[intent] || 'general';
 }
 
-// ==================== RUTA PRINCIPAL ====================
+// ==================== V4.3: INTEGRACIÓN CHAT → CEREBRO ====================
+
+/**
+ * Alimenta el cerebro real con cada mensaje.
+ * Esto hace que:
+ *  - El cuerpo reaccione emocionalmente (situaciones bioquímicas).
+ *  - La memoria episódica registre el turno.
+ *  - El sistema cognitivo cree pensamientos y decisiones.
+ *  - Se creen conexiones sinápticas entre intents y emociones.
+ *  - Se aprenda la "habilidad" de conversar sobre ese tema.
+ */
+async function integrateChatIntoBrain({ sessionId, userMessage, analysis, generated, stateBefore }) {
+    try {
+        // 1. Aplicar situación emocional según intent
+        const sit = TUNING.intentToSituation[analysis.intent];
+        if (sit && !systemCore.systemState.emergency) {
+            systemCore.applySituation(sit.tipo, sit.intensidad);
+        }
+
+        // 2. Registrar memoria episódica del turno
+        if (systemCore.database?.isInitialized) {
+            const emocionAsociada = generated.emotion || 'neutral';
+            const fuerza = Math.min(1, 0.55 + (analysis.intensity || 0.3) * 0.4);
+            const importancia = Math.min(1, 0.5 + (analysis.confidence || 0.5) * 0.3 + (analysis.intensity || 0.3) * 0.2);
+
+            await systemCore.database.saveMemory({
+                contenido: `[${analysis.intent}] Usuario: ${userMessage.substring(0, 500)} || Cerebro: ${generated.text.substring(0, 500)}`,
+                tipo: 'interaccion',
+                fuerza,
+                importancia,
+                emocion_asociada: emocionAsociada,
+                consolidada: true,
+                sim_time: systemCore.systemTime,
+                timestamp: Date.now()
+            });
+        }
+
+        // 3. Registrar pensamiento del cerebro
+        if (systemCore.database?.isInitialized && generated.text.length > 0) {
+            await systemCore.database.saveThought({
+                contenido: generated.text.substring(0, 1000),
+                tipo: 'consciente',
+                intensidad: generated.confidence ?? 0.5,
+                emocion_asociada: generated.emotion,
+                nivel_consciencia: stateBefore?.system?.consciousness ?? 0.5,
+                sim_time: systemCore.systemTime,
+                timestamp: Date.now()
+            });
+        }
+
+        // 4. Aprender la habilidad de conversar sobre ese tema
+        try {
+            const skillName = `dialogo_${analysis.intent}`;
+            systemCore.learn(skillName, {
+                cognitive: stateBefore?.modules?.cognitive,
+                biochemical: stateBefore?.modules?.biochemical,
+                emotional: stateBefore?.modules?.emotional,
+                metodo: 'conversacion'
+            }, true);
+        } catch (_) {}
+
+        // 5. Crear conexiones sinápticas entre intent y emoción dominante
+        if (generated.emotion && systemCore.database?.isInitialized) {
+            try {
+                await systemCore.database.saveConnection(
+                    `intent_${analysis.intent}`,
+                    `emotion_${generated.emotion}`,
+                    0.5 + (analysis.confidence || 0.5) * 0.3
+                );
+                // Y entre emoción detectada y memoria
+                if (analysis.sentiment !== 0) {
+                    const pole = analysis.sentiment > 0 ? 'positivo' : 'negativo';
+                    await systemCore.database.saveConnection(
+                        `intent_${analysis.intent}`,
+                        `sentimiento_${pole}`,
+                        0.4 + Math.abs(analysis.sentiment) * 0.4
+                    );
+                }
+            } catch (_) {}
+        }
+
+        // 6. Enriquecer la memoria semántica con las entidades detectadas
+        if (analysis.entities && analysis.entities.length > 0 && systemCore.database?.isInitialized) {
+            for (const ent of analysis.entities.slice(0, 5)) {
+                try {
+                    await systemCore.database.db.run(
+                        `INSERT INTO memoria_semantica (concepto, significado, fuerza, contextos, ultima_actualizacion)
+                         VALUES (?, ?, 0.4, 1, ?)
+                         ON CONFLICT(concepto) DO UPDATE SET
+                            fuerza = MIN(1.0, fuerza + 0.05),
+                            contextos = contextos + 1,
+                            ultima_actualizacion = ?`,
+                        [ent, `Mencionado en conversación: ${analysis.intent}`, Date.now(), Date.now()]
+                    );
+                } catch (_) {}
+            }
+        }
+    } catch (err) {
+        console.warn('⚠️ integrateChatIntoBrain falló:', err.message);
+    }
+}
+
+// ==================== RUTAS ====================
 
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// ==================== API DEL CEREBRO ====================
-
 app.get('/api/state', async (req, res) => {
     try {
-        const state = await withTimeout(
-            systemCore.getState(),
-            TUNING.chat.stateTimeoutMs,
-            'getState'
-        );
+        const state = await withTimeout(systemCore.getState(), TUNING.chat.stateTimeoutMs, 'getState');
         const metrics = await systemCore.getMetrics();
         const regions = computeActivatedRegions(state, 'general');
         res.json({ success: true, state, metrics, regions, timestamp: Date.now() });
@@ -300,6 +347,7 @@ app.get('/api/health', async (req, res) => {
             environment: NODE_ENV,
             conversation: conversationManager.getStats(),
             llm: responseGenerator.llm.isConfigured() ? responseGenerator.llm.provider : null,
+            llmCloud: responseGenerator.llm.isCloud || false,
             timestamp: Date.now()
         });
     } catch (error) { errorResponse(res, error); }
@@ -341,7 +389,6 @@ app.post('/api/learn', async (req, res) => {
     } catch (error) { errorResponse(res, error); }
 });
 
-// Lista blanca ampliada con todo lo que usan los módulos
 const VALID_SITUATIONS = new Set([
     'oxigeno_alto', 'oxigeno_bajo', 'toxinas', 'limpiar_toxinas',
     'temperatura_alta', 'temperatura_baja',
@@ -368,16 +415,7 @@ app.post('/api/situation', async (req, res) => {
     } catch (error) { errorResponse(res, error); }
 });
 
-// ==================== CHAT (V4.2) ====================
-//
-// Flujo:
-//  1. Clasificar intención
-//  2. Obtener contexto de sesión
-//  3. Registrar turno del usuario
-//  4. Consultar memoria (para enriquecer)
-//  5. Generar respuesta
-//  6. Registrar respuesta del cerebro
-//  7. Devolver JSON + regiones activadas
+// ==================== CHAT V4.3 ====================
 
 app.post('/api/chat', chatLimiter, async (req, res) => {
     try {
@@ -400,24 +438,22 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
 
         // 2. Contexto
         const context = conversationManager.getContext(sessionId);
-
-        // Detectar repetición
         const isRepeating = conversationManager.detectRepetition(sessionId, analysis.intent);
 
-        // 3. Estado del cerebro
-        const state = await systemCore.getState();
-        const emotional = state.modules?.emotional || {};
-        const cognitive = state.modules?.cognitive || {};
-        const personality = state.modules?.personality || {};
-        const biochemical = state.modules?.biochemical || {};
+        // 3. Estado del cerebro ANTES de reaccionar
+        const stateBefore = await systemCore.getState();
+        const emotional = stateBefore.modules?.emotional || {};
+        const cognitive = stateBefore.modules?.cognitive || {};
+        const personality = stateBefore.modules?.personality || {};
+        const biochemical = stateBefore.modules?.biochemical || {};
 
-        // 4. Memoria (best effort)
+        // 4. Memoria (búsqueda semántica)
         let memoryContext = null;
         try {
             memoryContext = await systemCore.remember(trimmedMessage);
         } catch (_) {}
 
-        // 5. Registrar turno del usuario
+        // 5. Registrar turno del usuario INMEDIATAMENTE (memoria + cola DB)
         conversationManager.recordTurn(sessionId, {
             role: 'usuario',
             content: trimmedMessage,
@@ -425,6 +461,18 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
             sentiment: analysis.sentiment,
             entities: analysis.entities
         });
+
+        // 5b. Persistir el turno del usuario a DB de inmediato (no esperar flush)
+        if (systemCore.database?.isInitialized) {
+            try {
+                const pending = conversationManager.drainPendingMessages();
+                if (pending.length > 0) {
+                    await systemCore.database.saveConversationBatch(pending);
+                }
+            } catch (err) {
+                console.warn('⚠️ Error persistiendo turno usuario:', err.message);
+            }
+        }
 
         // 6. Generar respuesta
         const generated = await responseGenerator.generate({
@@ -447,52 +495,35 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
             entities: []
         });
 
-        // 8. Flush de conversaciones a BD (debounced por SystemCore)
-        systemCore.queuePersistence('conversation', async () => {
-            const db = systemCore.database;
-            if (!db?.isInitialized) {
-                conversationManager.drainPendingMessages();
-                return;
-            }
-            const messages = conversationManager.drainPendingMessages();
-            if (messages.length > 0) {
-                try { await db.saveConversationBatch(messages); }
-                catch (err) { systemCore.logSystem(`Error persistiendo conversación: ${err.message}`, 'warning'); }
-            }
-        });
-
-        // 9. Persistir memoria de la interacción (como antes)
+        // 7b. Persistir respuesta a DB de inmediato
         if (systemCore.database?.isInitialized) {
             try {
-                await systemCore.database.saveMemory({
-                    contenido: `Usuario: ${trimmedMessage} | Cerebro: ${generated.text}`,
-                    tipo: 'interaccion',
-                    fuerza: 0.7,
-                    importancia: 0.6,
-                    emocion_asociada: generated.emotion,
-                    sim_time: systemCore.systemTime
-                });
-                await systemCore.database.saveThought({
-                    contenido: generated.text.substring(0, 200),
-                    tipo: 'consciente',
-                    intensidad: generated.confidence ?? 0.5,
-                    emocion_asociada: generated.emotion,
-                    sim_time: systemCore.systemTime
-                });
-            } catch (dbErr) {
-                console.warn('⚠️ Error guardando interacción:', dbErr.message);
+                const pending = conversationManager.drainPendingMessages();
+                if (pending.length > 0) {
+                    await systemCore.database.saveConversationBatch(pending);
+                }
+            } catch (err) {
+                console.warn('⚠️ Error persistiendo respuesta:', err.message);
             }
         }
 
-        // 10. Regiones activadas según intención (ahora vía TUNING.intentToRegion)
-        const regionAnalysisType = intentToRegionType(analysis.intent);
-        const regions = computeActivatedRegions(state, regionAnalysisType);
+        // 8. Integrar el chat en el cerebro (aprendizaje real)
+        await integrateChatIntoBrain({
+            sessionId,
+            userMessage: trimmedMessage,
+            analysis,
+            generated,
+            stateBefore
+        });
 
-        // 11. Respuesta
+        // 9. Regiones activadas
+        const regionAnalysisType = intentToRegionType(analysis.intent);
+        const stateAfter = await systemCore.getState();
+        const regions = computeActivatedRegions(stateAfter, regionAnalysisType);
+
+        // 10. Respuesta
         res.json({
             success: true,
-
-            // Compat con V4.1
             message: generated.text,
             emotion: generated.emotion,
             emoji: generated.emoji,
@@ -505,15 +536,12 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
                 dopamina: biochemical.dopamina ?? 0
             },
             state: {
-                consciousness: state.system?.consciousness ?? 0,
-                stability: state.system?.stability ?? 0,
-                performance: state.system?.performance ?? 0,
-                // FIX V4.2.1: propagar simTime para que el frontend lo muestre
-                simTime: state.system?.simTime ?? 0
+                consciousness: stateAfter.system?.consciousness ?? 0,
+                stability: stateAfter.system?.stability ?? 0,
+                performance: stateAfter.system?.performance ?? 0,
+                simTime: stateAfter.system?.simTime ?? 0
             },
             activated_regions: regions,
-
-            // Nuevos campos V4.2
             session_id: sessionId,
             analysis: {
                 intent: analysis.intent,
@@ -532,7 +560,8 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
                 is_repeating: isRepeating
             },
             source: generated.source,
-            context_used: generated.usedContext
+            context_used: generated.usedContext,
+            learned: true
         });
     } catch (error) {
         console.error('❌ /api/chat:', error);
@@ -545,16 +574,16 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
 app.get('/api/conversation/history', async (req, res) => {
     try {
         const sessionId = getSessionId(req);
-        const limit = safeInt(req.query.limit, 50, 1, 200);
-        const session = conversationManager.getSession(sessionId);
+        const limit = safeInt(req.query.limit, TUNING.limits.defaultHistoryLimit, 1, TUNING.limits.maxConversationHistory);
 
-        // Preferir memoria (más reciente), fallback a BD
-        let turns = session.turns.slice(-limit);
+        // 1) Turnos en memoria
+        let turns = conversationManager.getFullHistory(sessionId).slice(-limit);
 
-        if (turns.length === 0 && systemCore.database?.isInitialized) {
+        // 2) Si hay menos en memoria que el límite, completar con DB
+        if (turns.length < limit && systemCore.database?.isInitialized) {
             try {
                 const dbTurns = await systemCore.database.getConversationHistory(sessionId, limit);
-                turns = dbTurns.reverse().map(t => ({
+                const mapped = dbTurns.reverse().map(t => ({
                     role: t.rol,
                     content: t.contenido,
                     intent: t.intent,
@@ -563,6 +592,8 @@ app.get('/api/conversation/history', async (req, res) => {
                     timestamp: t.timestamp,
                     simTime: t.sim_time
                 }));
+                // Si DB tiene más, priorizar DB (más completo)
+                if (mapped.length > turns.length) turns = mapped;
             } catch (_) {}
         }
 
@@ -578,7 +609,7 @@ app.get('/api/conversation/history', async (req, res) => {
 app.get('/api/conversation/topics', async (req, res) => {
     try {
         const sessionId = getSessionId(req);
-        const topics = conversationManager.getTopTopics(sessionId, 10);
+        const topics = conversationManager.getTopTopics(sessionId, 15);
         res.json({ success: true, session_id: sessionId, topics });
     } catch (error) { errorResponse(res, error); }
 });
@@ -589,6 +620,10 @@ app.post('/api/conversation/reset', async (req, res) => {
         const existed = conversationManager.sessions.has(sessionId);
         if (existed) {
             conversationManager.sessions.delete(sessionId);
+        }
+        // Borrar también en DB si existe
+        if (systemCore.database?.isInitialized) {
+            try { await systemCore.database.deleteConversationSession(sessionId); } catch (_) {}
         }
         res.json({
             success: true,
@@ -610,7 +645,7 @@ app.get('/api/conversation/stats', async (req, res) => {
                 session_id: sessionId,
                 turn_count: session.turnCount,
                 topics_count: session.topics.size,
-                sentiment_trend: session.sentimentTrend.slice(-5)
+                sentiment_trend: session.sentimentTrend.slice(-10)
             }
         });
     } catch (error) { errorResponse(res, error); }
@@ -661,7 +696,7 @@ app.get('/api/thoughts/history', async (req, res) => {
 
 app.get('/api/memories/important', async (req, res) => {
     try {
-        const limit = safeInt(req.query.limit, 20, 1, 200);
+        const limit = safeInt(req.query.limit, 30, 1, 200);
         const memories = await systemCore.database.getStrongestMemories(limit);
         res.json({ success: true, memories, count: memories.length });
     } catch (error) { errorResponse(res, error); }
@@ -689,8 +724,6 @@ app.get('/api/personality/evolution', async (req, res) => {
     } catch (error) { errorResponse(res, error); }
 });
 
-// ==================== APRENDIZAJE ====================
-
 app.get('/api/learning/feed', async (req, res) => {
     try {
         const limit = safeInt(req.query.limit, TUNING.limits.defaultFeedLimit, 1, 200);
@@ -698,8 +731,6 @@ app.get('/api/learning/feed', async (req, res) => {
         res.json({ success: true, feed, count: feed.length });
     } catch (error) { errorResponse(res, error); }
 });
-
-// ==================== ANÁLISIS ====================
 
 app.get('/api/analysis/full', async (req, res) => {
     try {
@@ -711,9 +742,7 @@ app.get('/api/analysis/full', async (req, res) => {
 app.get('/api/analysis/correlations', async (req, res) => {
     try {
         const { v1, v2, period } = req.query;
-        if (!v1 || !v2) {
-            return res.status(400).json({ success: false, error: 'v1 y v2 requeridos' });
-        }
+        if (!v1 || !v2) return res.status(400).json({ success: false, error: 'v1 y v2 requeridos' });
         const correlations = await systemCore.database.findCorrelations(v1, v2, period || 'day');
         res.json({ success: true, correlations });
     } catch (error) { errorResponse(res, error); }
@@ -731,9 +760,7 @@ app.get('/api/analysis/anomalies', async (req, res) => {
 app.get('/api/analysis/predict', async (req, res) => {
     try {
         const { variable, horizon } = req.query;
-        if (!variable) {
-            return res.status(400).json({ success: false, error: 'variable requerida' });
-        }
+        if (!variable) return res.status(400).json({ success: false, error: 'variable requerida' });
         const safeHorizon = safeInt(horizon, 10, 1, 100);
         const prediction = await systemCore.database.predictFuture(variable, safeHorizon);
         res.json({ success: true, prediction });
@@ -743,9 +770,7 @@ app.get('/api/analysis/predict', async (req, res) => {
 app.get('/api/analysis/trends', async (req, res) => {
     try {
         const { variable, period } = req.query;
-        if (!variable) {
-            return res.status(400).json({ success: false, error: 'variable requerida' });
-        }
+        if (!variable) return res.status(400).json({ success: false, error: 'variable requerida' });
         const trends = await systemCore.database.analyzeTrends(variable, period || 'day');
         res.json({ success: true, trends });
     } catch (error) { errorResponse(res, error); }
@@ -757,8 +782,6 @@ app.get('/api/analysis/stats', async (req, res) => {
         res.json({ success: true, stats });
     } catch (error) { errorResponse(res, error); }
 });
-
-// ==================== EXPORT / RESET (ADMIN) ====================
 
 app.get('/api/export', requireAdmin, async (req, res) => {
     try {
@@ -794,8 +817,6 @@ app.post('/api/emergency/reset', requireAdmin, async (req, res) => {
         });
     } catch (error) { errorResponse(res, error); }
 });
-
-// ==================== REPORTES ====================
 
 app.get('/api/health/report', async (req, res) => {
     try {
@@ -842,7 +863,7 @@ app.use((req, res) => {
 let brainInterval = null;
 
 async function startBrain() {
-    console.log('🧠 Iniciando Cerebro Digital V4.2...');
+    console.log('🧠 Iniciando Cerebro Digital V4.3...');
 
     try {
         const database = new DatabaseManager();
@@ -872,9 +893,10 @@ async function startBrain() {
         console.log(`📦 Módulos activos: ${Array.from(systemCore.modules.keys()).join(', ')}`);
 
         if (responseGenerator.llm.isConfigured()) {
-            console.log(`🤖 LLM configurado: ${responseGenerator.llm.provider} (${responseGenerator.llm.model})`);
+            const mode = responseGenerator.llm.isCloud ? ' [cloud]' : ' [local]';
+            console.log(`🤖 LLM configurado: ${responseGenerator.llm.provider} (${responseGenerator.llm.model})${mode}`);
         } else {
-            console.log('📝 Modo plantillas (sin LLM configurado)');
+            console.log('📝 Modo composer (sin LLM configurado)');
         }
 
         let lastTime = Date.now();
@@ -892,10 +914,7 @@ async function startBrain() {
                 if (errorCount % 20 === 0) {
                     console.error(`❌ Error en bucle cerebral (${errorCount}):`, error.message);
                 }
-                if (errorCount > 200) {
-                    console.error('⚠️ Demasiados errores, reiniciando contador...');
-                    errorCount = 0;
-                }
+                if (errorCount > 200) errorCount = 0;
             }
         }, Math.round(1000 / TUNING.updateHz));
         if (brainInterval.unref) brainInterval.unref();
@@ -906,12 +925,10 @@ async function startBrain() {
     }
 }
 
-// ==================== ARRANQUE ====================
-
 const server = app.listen(PORT, async () => {
     console.log(`
 ╔══════════════════════════════════════════════════════════╗
-║   🧠 CEREBRO DIGITAL V4.2.1 — API CORRIENDO              ║
+║   🧠 CEREBRO DIGITAL V4.3 — API CORRIENDO                ║
 ║   📡 http://localhost:${String(PORT).padEnd(5)}                              ║
 ║   🌐 http://localhost:${String(PORT).padEnd(5)}/                             ║
 ║   🔍 /api/health  💬 POST /api/chat                       ║
@@ -924,14 +941,12 @@ const server = app.listen(PORT, async () => {
 
 server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
-        console.error(`❌ Puerto ${PORT} en uso. Configura PORT o libera el puerto.`);
+        console.error(`❌ Puerto ${PORT} en uso.`);
     } else {
         console.error('❌ Error del servidor:', err);
     }
     process.exit(1);
 });
-
-// ==================== SHUTDOWN ORDENADO ====================
 
 let shuttingDown = false;
 
@@ -951,7 +966,6 @@ async function shutdown(reason, exitCode = 0) {
         console.error('Error flush final:', err.message);
     }
 
-    // Flush final de conversaciones
     try {
         if (systemCore.database?.isInitialized) {
             const messages = conversationManager.drainPendingMessages();
