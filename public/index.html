@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Cerebro Digital V4.2 — Conversación</title>
+<title>Cerebro Digital V4.3 — Conversación</title>
 <style>
     :root {
         --bg-0: #05060d;
@@ -33,7 +33,6 @@
         min-height: 100vh;
         overflow-x: hidden;
     }
-
     .app {
         display: grid;
         grid-template-columns: 1.35fr 1fr;
@@ -118,9 +117,7 @@
         font-size: 11px; color: var(--muted);
         padding: 4px 10px; border-radius: 8px; border: 1px solid var(--line);
     }
-    .panel-title .actions {
-        display: flex; gap: 8px; align-items: center;
-    }
+    .panel-title .actions { display: flex; gap: 8px; align-items: center; }
     .btn-mini {
         background: rgba(255,255,255,0.04);
         border: 1px solid var(--line);
@@ -132,14 +129,8 @@
         font-family: inherit;
         transition: all 0.2s;
     }
-    .btn-mini:hover {
-        border-color: rgba(0,229,255,0.45);
-        color: #eaf0ff;
-    }
-    .btn-mini.danger:hover {
-        border-color: rgba(255,90,122,0.5);
-        color: #ffa8b8;
-    }
+    .btn-mini:hover { border-color: rgba(0,229,255,0.45); color: #eaf0ff; }
+    .btn-mini.danger:hover { border-color: rgba(255,90,122,0.5); color: #ffa8b8; }
 
     .brain-stage {
         position: relative;
@@ -158,7 +149,6 @@
     }
     .region:hover { fill: rgba(120,160,255,0.25); }
     .region.active { stroke: rgba(0,229,255,0.9); }
-
     .region {
         --i: 0;
         filter: drop-shadow(0 0 calc(var(--i) * 18px) rgba(0,229,255,calc(var(--i) * 0.9)));
@@ -168,7 +158,6 @@
             fill: color-mix(in oklab, rgba(70,90,160,0.18), rgba(0,229,255,0.9) calc(var(--i) * 100%));
         }
     }
-
     .region-label {
         font-size: 10px;
         fill: #eaf2ff;
@@ -271,6 +260,8 @@
         line-height: 1.55;
         animation: msgIn 0.35s ease;
         position: relative;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
     }
     @keyframes msgIn {
         from { opacity: 0; transform: translateY(8px); }
@@ -304,7 +295,7 @@
         font-variant-numeric: tabular-nums;
         white-space: nowrap;
     }
-    .msg .content { color: #eaf0ff; }
+    .msg .content { color: #eaf0ff; white-space: pre-wrap; }
     .msg .reasoning {
         margin-top: 8px; padding-top: 8px;
         border-top: 1px solid rgba(255,255,255,0.06);
@@ -327,6 +318,7 @@
     .chip-sm.sentiment-neg { color: #ffa8b8; border-color: rgba(255,90,122,0.35); }
     .chip-sm.context { color: #d8c7ff; border-color: rgba(160,107,255,0.35); }
     .chip-sm.llm { color: #ffe08a; border-color: rgba(255,213,79,0.35); }
+    .chip-sm.learned { color: #a6ffd5; border-color: rgba(77,255,184,0.45); background: rgba(77,255,184,0.06); }
 
     .msg .mini-stats {
         margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap;
@@ -350,9 +342,14 @@
         display: flex; gap: 10px;
         padding-top: 12px;
         border-top: 1px solid var(--line);
+        align-items: flex-end;
     }
-    .composer input {
+    .composer-input-wrap {
         flex: 1;
+        display: flex; flex-direction: column; gap: 4px;
+    }
+    .composer textarea {
+        width: 100%;
         background: rgba(10,14,26,0.8);
         border: 1px solid var(--line);
         color: #eaf0ff;
@@ -362,22 +359,35 @@
         font-family: inherit;
         outline: none;
         transition: border 0.2s, box-shadow 0.2s;
+        resize: vertical;
+        min-height: 44px;
+        max-height: 200px;
+        line-height: 1.4;
     }
-    .composer input:focus {
+    .composer textarea:focus {
         border-color: rgba(0,229,255,0.6);
         box-shadow: 0 0 0 3px rgba(0,229,255,0.08);
     }
+    .composer .char-counter {
+        font-size: 10.5px; color: var(--muted);
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+    }
+    .composer .char-counter.near { color: #ffe08a; }
+    .composer .char-counter.over { color: #ffa8b8; }
     .composer button {
         background: linear-gradient(135deg, var(--cyan), var(--violet));
         color: #060815;
         border: none;
         padding: 0 22px;
+        height: 44px;
         border-radius: 12px;
         font-weight: 700;
         letter-spacing: 0.4px;
         cursor: pointer;
         font-family: inherit;
         transition: transform 0.15s, box-shadow 0.2s, opacity 0.2s;
+        flex-shrink: 0;
     }
     .composer button:hover:not(:disabled) {
         transform: translateY(-1px);
@@ -415,9 +425,7 @@
         border-radius: 12px;
         margin-bottom: 12px;
     }
-    .context-bar .item {
-        display: flex; flex-direction: column; gap: 2px;
-    }
+    .context-bar .item { display: flex; flex-direction: column; gap: 2px; }
     .context-bar .item .lbl {
         font-size: 9.5px; color: var(--muted);
         text-transform: uppercase; letter-spacing: 1px;
@@ -454,7 +462,7 @@
             <div class="brand-logo"></div>
             <div>
                 <h1>Cerebro Digital</h1>
-                <small>Conversación contextual · V4.2</small>
+                <small>Conversación contextual · V4.3</small>
             </div>
         </div>
         <div class="top-stats">
@@ -462,7 +470,7 @@
             <div class="stat-pill"><span class="label">Consciencia</span><span class="value" id="stat-cons">—</span></div>
             <div class="stat-pill"><span class="label">Estabilidad</span><span class="value" id="stat-stab">—</span></div>
             <div class="stat-pill"><span class="label">Turnos</span><span class="value" id="stat-turns">—</span></div>
-            <div class="stat-pill"><span class="label">Modo</span><span class="value small" id="stat-mode">plantillas</span></div>
+            <div class="stat-pill"><span class="label">Modo</span><span class="value small" id="stat-mode">—</span></div>
         </div>
     </header>
 
@@ -475,29 +483,21 @@
             <svg viewBox="0 0 400 420" xmlns="http://www.w3.org/2000/svg">
                 <path class="brain-outline" d="M200,55 C120,55 55,110 55,185 C55,250 90,310 145,340 C175,357 185,368 200,375 C215,368 225,357 255,340 C310,310 345,250 345,185 C345,110 280,55 200,55 Z"/>
                 <path class="fissure" d="M200,60 L200,360"/>
-
                 <ellipse id="region-limbic" class="region" data-region="limbic" cx="200" cy="270" rx="42" ry="34"/>
-
                 <path id="region-frontal" class="region" data-region="frontal"
                       d="M200,60 C160,60 120,80 105,110 C95,130 95,160 110,180 L200,180 L290,180 C305,160 305,130 295,110 C280,80 240,60 200,60 Z"/>
-
                 <path id="region-parietal" class="region" data-region="parietal"
                       d="M110,185 L200,185 L290,185 C300,200 300,225 290,240 L200,240 L110,240 C100,225 100,200 110,185 Z"/>
-
                 <path id="region-temporal" class="region" data-region="temporal"
                       d="M105,245 C90,255 78,275 78,300 C78,325 95,345 120,352 C140,357 165,350 180,335 L180,250 Z
                          M295,245 C310,255 322,275 322,300 C322,325 305,345 280,352 C260,357 235,350 220,335 L220,250 Z"/>
-
                 <path id="region-occipital" class="region" data-region="occipital"
                       d="M140,345 C155,355 180,360 200,360 C220,360 245,355 260,345 C270,352 270,362 255,368 C235,375 215,375 200,375 C185,375 165,375 145,368 C130,362 130,352 140,345 Z"/>
-
                 <path id="region-cerebellum" class="region" data-region="cerebellum"
                       d="M150,368 C160,380 180,388 200,388 C220,388 240,380 250,368 C255,380 245,394 200,398 C155,394 145,380 150,368 Z"
                       opacity="0.85"/>
-
                 <path id="region-brainstem" class="region" data-region="brainstem"
                       d="M188,375 C185,388 188,400 200,405 C212,400 215,388 212,375 Z"/>
-
                 <text class="region-label" x="200" y="130">Frontal · Decisión</text>
                 <text class="region-label" x="200" y="218">Parietal · Atención</text>
                 <text class="region-label" x="200" y="272">Límbico · Emoción</text>
@@ -548,7 +548,10 @@
             <div class="chat-scroll" id="chat"></div>
 
             <div class="composer">
-                <input id="input" type="text" placeholder="Escribe algo al cerebro…" autocomplete="off"/>
+                <div class="composer-input-wrap">
+                    <textarea id="input" placeholder="Escribe algo al cerebro… (Enter envía, Shift+Enter salto de línea)" rows="1" maxlength="10000"></textarea>
+                    <div class="char-counter" id="char-counter">0 / 10000</div>
+                </div>
                 <button id="send">Enviar</button>
             </div>
             <div class="quick">
@@ -556,6 +559,7 @@
                 <button class="danger" data-q="Estoy muy ansioso, no puedo parar de pensar">😰 Ansiedad</button>
                 <button class="success" data-q="Estoy muy feliz, hoy fue un gran día">😊 Alegría</button>
                 <button class="warning" data-q="No sé qué hacer con mi trabajo, necesito un consejo">🤔 Consejo</button>
+                <button data-q="¿Qué has aprendido hoy?">🧠 Aprendizaje</button>
                 <button data-q="¿Qué piensas sobre el sentido de la vida?">🌌 Filosofía</button>
             </div>
         </section>
@@ -577,7 +581,7 @@
 
 <script>
 /* ============================================================
-   CEREBRO DIGITAL V4.2 — Frontend
+   CEREBRO DIGITAL V4.3 — Frontend
    ============================================================ */
 
 const $ = (sel) => document.querySelector(sel);
@@ -589,12 +593,15 @@ const feedCount = $('#feed-count');
 const brainTag = $('#brain-tag');
 const banner = $('#banner');
 const sessionTag = $('#session-tag');
+const charCounter = $('#char-counter');
+
+const MAX_MESSAGE_LENGTH = 10000;
+const HISTORY_LIMIT = 300;
 
 const REGIONS = ['frontal', 'parietal', 'temporal', 'limbic', 'occipital', 'brainstem', 'cerebellum'];
 const regionEls = {};
 REGIONS.forEach(r => regionEls[r] = document.getElementById('region-' + r));
 
-/* ---------- Session ID persistente ---------- */
 const SESSION_KEY = 'cerebro_session_id';
 function loadOrCreateSessionId() {
     try {
@@ -608,19 +615,15 @@ function loadOrCreateSessionId() {
 let SESSION_ID = loadOrCreateSessionId();
 sessionTag.textContent = SESSION_ID.slice(-12);
 
-/* ---------- Estado del cliente ---------- */
 const FEED_SEEN_MAX = 500;
 let feedSeenKeys = new Set();
 let feedSeenQueue = [];
 let feedItems = [];
 let lastRegions = {};
-let lastContext = null;
-
 let stateInterval = null;
 let feedInterval = null;
 let isPageVisible = !document.hidden;
 
-/* ---------- Helpers ---------- */
 function escapeHtml(str) {
     return String(str)
         .replaceAll('&', '&amp;')
@@ -642,22 +645,13 @@ function timeLong(ts) {
     const d = new Date(ts);
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
-function formatSimTime(seconds) {
-    if (!Number.isFinite(seconds)) return '—';
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
-    if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`;
-    if (m > 0) return `${m}m ${String(s).padStart(2, '0')}s`;
-    return `${s}s`;
-}
 function sentimentLabel(v) {
     if (v > 0.3) return 'positivo';
     if (v < -0.3) return 'negativo';
     return 'neutro';
 }
 
-/* ---------- Brain ---------- */
+// ==================== Brain ====================
 function updateBrain(regions) {
     if (!regions) return;
     REGIONS.forEach(r => {
@@ -689,7 +683,7 @@ function updateBrain(regions) {
     brainTag.textContent = `${names[maxR]}  ${pct(maxV)}`;
 }
 
-/* ---------- Feed con cap ---------- */
+// ==================== Feed ====================
 function feedKeySeen(key) { return key ? feedSeenKeys.has(key) : false; }
 function feedKeyAdd(key) {
     if (!key) return;
@@ -722,14 +716,13 @@ function addFeed({ icon, title, meta, tone, key }) {
     feedCount.textContent = feedItems.length + ' eventos';
 }
 
-/* ---------- Chat ---------- */
+// ==================== Chat ====================
 function appendChat(sender, content, meta = {}) {
     const msg = document.createElement('div');
     msg.className = 'msg ' + (sender === 'user' ? 'user' : 'brain');
 
     const senderName = sender === 'user' ? '🧑 Tú' : '🤖 Cerebro';
     const ts = meta.timestamp || Date.now();
-    const simTime = meta.simTime;
 
     let chipsHtml = '';
     if (meta.emotion) {
@@ -748,6 +741,9 @@ function appendChat(sender, content, meta = {}) {
     }
     if (meta.source === 'llm') {
         chipsHtml += `<span class="chip-sm llm">LLM</span>`;
+    }
+    if (meta.learned) {
+        chipsHtml += `<span class="chip-sm learned">aprendido</span>`;
     }
     if (meta.contextUsed) {
         chipsHtml += `<span class="chip-sm context">contexto</span>`;
@@ -772,8 +768,8 @@ function appendChat(sender, content, meta = {}) {
     msg.innerHTML = `
         <div class="sender-row">
             <div class="sender">${senderName}</div>
-            <div class="timestamp" title="Real: ${timeLong(ts)}${simTime ? ' · Sim: ' + formatSimTime(simTime) : ''}">
-                ${timeShort(ts)}${simTime ? ' · ' + formatSimTime(simTime) : ''}
+            <div class="timestamp" title="Real: ${timeLong(ts)}">
+                ${timeShort(ts)}
             </div>
         </div>
         <div class="content">${escapeHtml(content)}</div>
@@ -807,8 +803,7 @@ function showBanner(text) {
     setTimeout(() => banner.classList.remove('show'), 6000);
 }
 
-/* ---------- Fetch con sessionId ---------- */
-async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+async function fetchWithTimeout(url, options = {}, timeoutMs = 60000) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     const headers = {
@@ -822,7 +817,6 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
     }
 }
 
-/* ---------- Estado ---------- */
 async function fetchState() {
     if (!isPageVisible) return;
     try {
@@ -862,7 +856,6 @@ function applyState(data) {
     if (data.regions) updateBrain(data.regions);
 }
 
-/* ---------- Feed remoto ---------- */
 async function fetchLearningFeed() {
     if (!isPageVisible) return;
     try {
@@ -885,7 +878,6 @@ async function fetchLearningFeed() {
     } catch (_) {}
 }
 
-/* ---------- Contexto ---------- */
 async function fetchContext() {
     if (!isPageVisible) return;
     try {
@@ -899,10 +891,9 @@ async function fetchContext() {
     } catch (_) {}
 }
 
-/* ---------- Historial ---------- */
 async function loadHistory() {
     try {
-        const r = await fetchWithTimeout('/api/conversation/history?limit=30', {}, 6000);
+        const r = await fetchWithTimeout(`/api/conversation/history?limit=${HISTORY_LIMIT}`, {}, 10000);
         if (!r.ok) return;
         const data = await r.json();
         if (!data.success || !Array.isArray(data.turns)) return;
@@ -918,14 +909,12 @@ async function loadHistory() {
                 intent: turn.intent,
                 emotion: turn.emotion,
                 sentiment: turn.sentiment,
-                timestamp: turn.timestamp,
-                simTime: turn.simTime
+                timestamp: turn.timestamp
             });
         }
     } catch (_) {}
 }
 
-/* ---------- Temas ---------- */
 async function fetchTopics() {
     try {
         const r = await fetchWithTimeout('/api/conversation/topics', {}, 5000);
@@ -937,13 +926,17 @@ async function fetchTopics() {
     } catch (_) {}
 }
 
-/* ---------- Envío ---------- */
 async function sendMessage() {
     const text = input.value.trim();
     if (!text) return;
+    if (text.length > MAX_MESSAGE_LENGTH) {
+        showBanner(`Mensaje demasiado largo (máx ${MAX_MESSAGE_LENGTH} caracteres).`);
+        return;
+    }
 
     appendChat('user', text, { timestamp: Date.now() });
     input.value = '';
+    updateCharCounter();
     input.disabled = true;
     sendBtn.disabled = true;
     showTyping();
@@ -953,7 +946,7 @@ async function sendMessage() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ message: text })
-        }, 30000);
+        }, 90000);
         const data = await r.json();
         hideTyping();
 
@@ -969,13 +962,12 @@ async function sendMessage() {
                 sentiment: data.analysis?.sentiment,
                 source: data.source,
                 contextUsed: data.context_used,
-                timestamp: Date.now(),
-                simTime: data.state?.simTime
+                learned: data.learned,
+                timestamp: Date.now()
             });
 
             if (data.activated_regions) updateBrain(data.activated_regions);
 
-            // Contexto
             if (data.context) {
                 $('#ctx-turn').textContent = data.context.turn_count ?? 0;
                 $('#stat-turns').textContent = data.context.turn_count ?? 0;
@@ -987,20 +979,17 @@ async function sendMessage() {
                 }
             }
 
-            // Sentimiento
             if (data.analysis && typeof data.analysis.sentiment === 'number') {
                 const s = data.analysis.sentiment;
                 $('#ctx-sent').textContent = sentimentLabel(s);
             }
 
-            // Modo
             if (data.source === 'llm') $('#stat-mode').textContent = 'LLM';
-            else $('#stat-mode').textContent = 'plantillas';
+            else $('#stat-mode').textContent = 'composer';
 
-            // Feed
-            addFeed(buildLearningEntry(data, text));
             fetchState();
             fetchTopics();
+            fetchLearningFeed();
         } else {
             appendChat('brain', 'No pude procesar tu mensaje: ' + (data.error || ''), {});
         }
@@ -1016,28 +1005,9 @@ async function sendMessage() {
     input.focus();
 }
 
-function buildLearningEntry(data, userText) {
-    const emo = data.emotion || 'neutral';
-    const conf = data.confidence || 0;
-    let icon = '📚', tone = '';
-    if (emo === 'alegria') { icon = '🌟'; tone = 'gold'; }
-    else if (emo === 'miedo' || emo === 'ira') { icon = '⚡'; tone = 'red'; }
-    else if (emo === 'confianza') { icon = '💎'; tone = 'green'; }
-    else if (emo === 'tristeza') { icon = '🌧️'; tone = 'violet'; }
-
-    return {
-        icon,
-        title: `Respuesta con ${emo} (confianza ${Math.round(conf * 100)}%)`,
-        meta: data.analysis?.intent ? `intent: ${data.analysis.intent}` : 'procesamiento emocional',
-        tone,
-        key: `learn-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-    };
-}
-
-/* ---------- Nueva conversación ---------- */
 async function startNewConversation() {
     try {
-        await fetchWithTimeout('/api/conversation/reset', { method: 'POST' }, 5000);
+        await fetchWithTimeout('/api/conversation/reset', { method: 'POST' }, 8000);
     } catch (_) {}
     clearChat();
     appendChat('brain', 'Empezamos de nuevo. Estoy aquí. Cuéntame lo que quieras.');
@@ -1052,7 +1022,17 @@ async function startNewConversation() {
     fetchTopics();
 }
 
-/* ---------- Polling ---------- */
+function updateCharCounter() {
+    const len = input.value.length;
+    charCounter.textContent = `${len} / ${MAX_MESSAGE_LENGTH}`;
+    charCounter.classList.remove('near', 'over');
+    if (len > MAX_MESSAGE_LENGTH) charCounter.classList.add('over');
+    else if (len > MAX_MESSAGE_LENGTH * 0.85) charCounter.classList.add('near');
+    // Auto-resize del textarea
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+}
+
 function startPolling() {
     stopPolling();
     fetchState();
@@ -1072,27 +1052,37 @@ document.addEventListener('visibilitychange', () => {
     else stopPolling();
 });
 
-/* ---------- Eventos ---------- */
 sendBtn.addEventListener('click', sendMessage);
-input.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
+input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+    }
+});
+input.addEventListener('input', updateCharCounter);
 document.querySelectorAll('.quick button').forEach(btn => {
     btn.addEventListener('click', () => {
         input.value = btn.dataset.q || '';
+        updateCharCounter();
         sendMessage();
     });
 });
 $('#btn-new').addEventListener('click', startNewConversation);
 
-/* ---------- Arranque ---------- */
 (async function init() {
     try {
         const r = await fetch('/api/health', { headers: { 'X-Session-Id': SESSION_ID } });
         const h = await r.json();
-        if (h.llm) $('#stat-mode').textContent = 'LLM';
+        if (h.llm) {
+            $('#stat-mode').textContent = h.llmCloud ? 'LLM cloud' : 'LLM';
+        } else {
+            $('#stat-mode').textContent = 'composer';
+        }
     } catch (_) {}
 
     await loadHistory();
     startPolling();
+    updateCharCounter();
 
     addFeed({
         icon: '🧠',
@@ -1104,4 +1094,4 @@ $('#btn-new').addEventListener('click', startNewConversation);
 })();
 </script>
 </body>
-            </html>
+</html>
