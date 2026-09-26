@@ -1,5 +1,11 @@
 // src/core/SystemCore.js
-// Núcleo central que coordina todos los módulos — V4.1
+// Núcleo central que coordina todos los módulos — V4.3
+//
+// CAMBIOS CLAVE V4.3:
+//  - queuePersistence acepta MÚLTIPLES funciones por módulo (antes la
+//    segunda sobreescribía la primera antes del flush).
+//  - flushPendingPersistence itera arrays de funciones.
+//  - getMetrics reporta total real de funciones pendientes.
 //
 // CAMBIOS CLAVE V4.1:
 //  - severity real en eventos críticos
@@ -29,7 +35,8 @@ export class SystemCore {
 
         this.database = null;
 
-        // Buffer de persistencia (módulo → closure)
+        // Buffer de persistencia: Map<moduleName, Array<fn>>
+        // Antes era Map<moduleName, fn> y la segunda llamada sobreescribía.
         this._pendingPersists = new Map();
         this._lastPersistFlushAt = Date.now();
         this._persistFlushIntervalMs = TUNING.persistFlushInterval * 1000;
@@ -96,7 +103,7 @@ export class SystemCore {
     }
 
     initializeCore() {
-        console.log('⚙️ SystemCore V4.1 inicializado');
+        console.log('⚙️ SystemCore V4.3 inicializado');
     }
 
     // ==================== REGISTRO DE MÓDULOS ====================
@@ -117,9 +124,21 @@ export class SystemCore {
 
     // ==================== PERSISTENCIA CENTRALIZADA ====================
 
+    /**
+     * Encola una función de persistencia para un módulo.
+     *
+     * FIX V4.3: ahora acepta múltiples funciones por módulo. Antes
+     * `this._pendingPersists.set(moduleName, fn)` sobreescribía la
+     * anterior si dos llamadas ocurrían antes del siguiente flush
+     * (ej: PersonalitySystem encola 'personality' y luego 'personality'
+     * otra vez → la primera se perdía).
+     */
     queuePersistence(moduleName, fn) {
         if (typeof fn !== 'function') return;
-        this._pendingPersists.set(moduleName, fn);
+        if (!this._pendingPersists.has(moduleName)) {
+            this._pendingPersists.set(moduleName, []);
+        }
+        this._pendingPersists.get(moduleName).push(fn);
     }
 
     async flushPendingPersistence() {
@@ -146,15 +165,29 @@ export class SystemCore {
 
         if (this._pendingPersists.size === 0) return;
 
-        const entries = Array.from(this._pendingPersists.entries());
+        // Snapshot y reset ANTES de await (evita carreras si algo
+        // vuelve a encolar durante el flush)
+        const snapshot = new Map();
+        for (const [name, arr] of this._pendingPersists) {
+            snapshot.set(name, arr.slice());
+        }
         this._pendingPersists.clear();
 
-        for (const [name, fn] of entries) {
-            try { await fn(); }
-            catch (err) {
-                this.logSystem(`Error persistiendo "${name}": ${err.message}`, 'warning');
+        for (const [name, fns] of snapshot) {
+            for (const fn of fns) {
+                try { await fn(); }
+                catch (err) {
+                    this.logSystem(`Error persistiendo "${name}": ${err.message}`, 'warning');
+                }
             }
         }
+    }
+
+    /** Total de funciones pendientes (suma de todos los módulos). */
+    _pendingPersistCount() {
+        let n = 0;
+        for (const arr of this._pendingPersists.values()) n += arr.length;
+        return n;
     }
 
     // ==================== UTILIDADES DE TIEMPO ====================
@@ -241,7 +274,7 @@ export class SystemCore {
             this.setupEventListeners();
             this.isRunning = true;
             this._lastPersistFlushAt = Date.now();
-            this.logSystem('Sistema nervioso central V4.1 inicializado completamente');
+            this.logSystem('Sistema nervioso central V4.3 inicializado completamente');
 
             this.dispatchEvent('system_initialized', {
                 config: this.characterConfig,
@@ -273,8 +306,6 @@ export class SystemCore {
         this.eventHistory.push({ module: moduleName, event, simTime: this.systemTime });
         if (this.eventHistory.length > TUNING.maxEventHistory) this.eventHistory.shift();
 
-        // FIX: severity ya no depende de `event.severity` porque los módulos
-        // no siempre lo emiten. Derivamos de `type` como fallback.
         const severity = this._deriveSeverity(event);
 
         if (severity >= 0.8) {
@@ -837,7 +868,7 @@ export class SystemCore {
             }
         }
         return {
-            version: '4.1.0',
+            version: '4.3.0',
             timestamp: Date.now(),
             simTime: this.systemTime,
             cycleCount: this.cycleCount,
@@ -974,7 +1005,7 @@ export class SystemCore {
             simTime: this.systemTime,
             modules: Array.from(this.modules.keys()),
             alerts: this.alerts.activeAlerts.length,
-            pendingPersists: this._pendingPersists.size,
+            pendingPersists: this._pendingPersistCount(),
             timestamp: Date.now()
         };
 
