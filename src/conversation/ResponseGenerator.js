@@ -1,5 +1,9 @@
 // src/conversation/ResponseGenerator.js
 //
+// V4.3.1:
+//  - usedContext ahora se calcula realmente a partir de memoryContext y
+//    del contexto de conversación. Antes estaba hardcoded a `true`.
+//
 // V4.3:
 //  - Truncado suave a TUNING.chat.maxResponseChars (10000).
 //  - El composer también respeta el límite.
@@ -59,6 +63,8 @@ export class ResponseGenerator {
             }
         }
 
+        const usedContext = this._computeUsedContext(input);
+
         return {
             text: finalText,
             source,
@@ -66,8 +72,39 @@ export class ResponseGenerator {
             emoji: this._emojiFor(emotion),
             reasoning,
             confidence,
-            usedContext: true
+            usedContext
         };
+    }
+
+    /**
+     * Determina si realmente se usó contexto (memoria + historial).
+     * Antes esto era `true` fijo, lo que hacía que el chip "contexto"
+     * del frontend mintiera siempre.
+     */
+    _computeUsedContext(input) {
+        if (!input) return false;
+
+        // Memoria semántica/episódica/procedural
+        const mem = input.memoryContext;
+        if (mem && mem.memories) {
+            const e = mem.memories.episodica;
+            const s = mem.memories.semantica;
+            const p = mem.memories.procedural;
+            if ((Array.isArray(e) && e.length > 0) ||
+                (Array.isArray(s) && s.length > 0) ||
+                (Array.isArray(p) && p.length > 0)) {
+                return true;
+            }
+        }
+
+        // Historial de conversación previo (turnCount > 0 o turns no vacío)
+        const ctx = input.context;
+        if (ctx) {
+            if (typeof ctx.turnCount === 'number' && ctx.turnCount > 0) return true;
+            if (Array.isArray(ctx.turns) && ctx.turns.length > 0) return true;
+        }
+
+        return false;
     }
 
     _deriveEmotion(emotionalState) {
