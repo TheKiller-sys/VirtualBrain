@@ -1033,6 +1033,18 @@ function updateCharCounter() {
     input.style.height = Math.min(input.scrollHeight, 200) + 'px';
 }
 
+// FIX V4.3.1: debounce del char counter con rAF.
+// Antes updateCharCounter se ejecutaba en cada keystroke (reflow costoso
+// por tocar input.style.height). Ahora coalescemos en el siguiente frame.
+let _charCounterRaf = null;
+function scheduleCharCounter() {
+    if (_charCounterRaf !== null) return;
+    _charCounterRaf = requestAnimationFrame(() => {
+        _charCounterRaf = null;
+        updateCharCounter();
+    });
+}
+
 function startPolling() {
     stopPolling();
     fetchState();
@@ -1059,7 +1071,7 @@ input.addEventListener('keydown', (e) => {
         sendMessage();
     }
 });
-input.addEventListener('input', updateCharCounter);
+input.addEventListener('input', scheduleCharCounter);
 document.querySelectorAll('.quick button').forEach(btn => {
     btn.addEventListener('click', () => {
         input.value = btn.dataset.q || '';
