@@ -1,5 +1,10 @@
 // src/core/DatabaseManager.js
-// Base de datos ultra avanzada con funciones SQLite personalizadas — V4.2
+// Base de datos ultra avanzada con funciones SQLite personalizadas — V4.3
+//
+// CAMBIOS CLAVE V4.3:
+//  - saveConversationBatch ya NO trunca a 2000 chars. Usa
+//    TUNING.chat.maxMessageLength (10000). Antes se perdía el 80%
+//    de los mensajes largos en el histórico.
 //
 // CAMBIOS CLAVE V4.2:
 //  - Tablas conversaciones + conversacion_temas (sesiones)
@@ -104,7 +109,7 @@ export class DatabaseManager {
             this.isInitialized = true;
             this.startAutoBackup();
 
-            console.log('🗄️ Base de datos V4.2 inicializada');
+            console.log('🗄️ Base de datos V4.3 inicializada');
             return true;
         } catch (error) {
             console.error('❌ Error inicializando DB:', error.message);
@@ -940,7 +945,7 @@ export class DatabaseManager {
             await this.saveState('sistema_estados', {
                 estabilidad: 0.8, rendimiento: 0.7, nivel_consciencia: 0.1,
                 integridad: 0.9, emergencia: 0, alertas_activas: 0,
-                datos: JSON.stringify({ initialized: true, version: '4.2.0' })
+                datos: JSON.stringify({ initialized: true, version: '4.3.0' })
             });
 
             const umbrales = [
@@ -1372,16 +1377,23 @@ export class DatabaseManager {
     }
 
     // ============================================================
-    // CONVERSACIÓN (V4.2)
+    // CONVERSACIÓN (V4.2 / V4.3)
     // ============================================================
 
     /**
      * Guarda un batch de mensajes de conversación.
+     *
+     * FIX V4.3: antes truncaba contenido a 2000 chars, pero la API y el
+     * ConversationManager permitían 10000. Se perdía el 80% de los
+     * mensajes largos. Ahora usa TUNING.chat.maxMessageLength.
+     *
      * @param {Array<{sessionId, timestamp, simTime, role, content, intent, emotion, sentiment, confidence, metadata}>} messages
      * @returns {Promise<number>} número de filas insertadas
      */
     async saveConversationBatch(messages) {
         if (!Array.isArray(messages) || messages.length === 0) return 0;
+
+        const maxContent = TUNING.chat.maxMessageLength;
 
         const stmt = `INSERT INTO conversaciones
             (session_id, timestamp, sim_time, rol, contenido, intent, emocion, sentimiento, confianza, metadata)
@@ -1395,7 +1407,7 @@ export class DatabaseManager {
                     m.timestamp ?? Date.now(),
                     m.simTime ?? m.sim_time ?? 0,
                     m.role ?? m.rol ?? 'usuario',
-                    (m.content || '').substring(0, 2000),
+                    (m.content || '').substring(0, maxContent),
                     m.intent || null,
                     m.emotion || m.emocion || null,
                     m.sentiment ?? m.sentimiento ?? 0,
@@ -2137,7 +2149,7 @@ export class DatabaseManager {
     // ============================================================
 
     async exportToJSON(limit = 100) {
-        const data = { timestamp: Date.now(), version: '4.2.0', tables: {} };
+        const data = { timestamp: Date.now(), version: '4.3.0', tables: {} };
         const tables = await this.db.all(
             `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`
         );
