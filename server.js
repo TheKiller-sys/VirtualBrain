@@ -1,5 +1,10 @@
 // server.js
-// Cerebro Digital V4.3 — API con aprendizaje real desde el chat
+// Cerebro Digital V4.3.1 — API con aprendizaje real desde el chat
+//
+// CAMBIOS V4.3.1:
+//  - /api/chat usa drainPendingMessages(sessionId) — evita mezcla de
+//    pendientes entre sesiones concurrentes.
+//  - shutdown usa drainAllPendingMessages() — vacía todo al cerrar.
 //
 // CAMBIOS V4.3:
 //  - integrateChatIntoBrain(): cada mensaje alimenta MemorySystem,
@@ -463,9 +468,10 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
         });
 
         // 5b. Persistir el turno del usuario a DB de inmediato (no esperar flush)
+        // FIX V4.3.1: drenamos SOLO la sesión actual.
         if (systemCore.database?.isInitialized) {
             try {
-                const pending = conversationManager.drainPendingMessages();
+                const pending = conversationManager.drainPendingMessages(sessionId);
                 if (pending.length > 0) {
                     await systemCore.database.saveConversationBatch(pending);
                 }
@@ -496,9 +502,10 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
         });
 
         // 7b. Persistir respuesta a DB de inmediato
+        // FIX V4.3.1: drenamos SOLO la sesión actual.
         if (systemCore.database?.isInitialized) {
             try {
-                const pending = conversationManager.drainPendingMessages();
+                const pending = conversationManager.drainPendingMessages(sessionId);
                 if (pending.length > 0) {
                     await systemCore.database.saveConversationBatch(pending);
                 }
@@ -621,7 +628,8 @@ app.post('/api/conversation/reset', async (req, res) => {
         if (existed) {
             conversationManager.sessions.delete(sessionId);
         }
-        // Borrar también en DB si existe
+        // Borrar también pendientes y DB si existe
+        conversationManager.drainPendingMessages(sessionId);
         if (systemCore.database?.isInitialized) {
             try { await systemCore.database.deleteConversationSession(sessionId); } catch (_) {}
         }
@@ -863,7 +871,7 @@ app.use((req, res) => {
 let brainInterval = null;
 
 async function startBrain() {
-    console.log('🧠 Iniciando Cerebro Digital V4.3...');
+    console.log('🧠 Iniciando Cerebro Digital V4.3.1...');
 
     try {
         const database = new DatabaseManager();
@@ -928,7 +936,7 @@ async function startBrain() {
 const server = app.listen(PORT, async () => {
     console.log(`
 ╔══════════════════════════════════════════════════════════╗
-║   🧠 CEREBRO DIGITAL V4.3 — API CORRIENDO                ║
+║   🧠 CEREBRO DIGITAL V4.3.1 — API CORRIENDO              ║
 ║   📡 http://localhost:${String(PORT).padEnd(5)}                              ║
 ║   🌐 http://localhost:${String(PORT).padEnd(5)}/                             ║
 ║   🔍 /api/health  💬 POST /api/chat                       ║
@@ -968,7 +976,8 @@ async function shutdown(reason, exitCode = 0) {
 
     try {
         if (systemCore.database?.isInitialized) {
-            const messages = conversationManager.drainPendingMessages();
+            // FIX V4.3.1: vaciar todas las sesiones al cerrar.
+            const messages = conversationManager.drainAllPendingMessages();
             if (messages.length > 0) {
                 await systemCore.database.saveConversationBatch(messages);
             }
