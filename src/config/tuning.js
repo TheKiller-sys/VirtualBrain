@@ -3,24 +3,24 @@
 
 export const TUNING = {
     // ==================== BUCLE PRINCIPAL ====================
-    updateHz: 4,                    // ticks por segundo del bucle central
-    slowTickHz: 0.5,                // módulos pesados corren a esta frecuencia
-    deltaTimeCap: 1.0,              // máximo deltaTime aceptado (segundos)
+    updateHz: 4,
+    slowTickHz: 0.5,
+    deltaTimeCap: 1.0,
     maxCycleHistory: 1000,
     maxEventHistory: 500,
     maxStabilityHistory: 500,
 
     // ==================== PERSISTENCIA ====================
-    persistFlushInterval: 5,        // segundos entre flushes
-    persistBatchCap: 500,           // máximo de items por buffer antes de descartar
-    autoBackupMinSizeKb: 100,       // no crear backup si la BD pesa menos
+    persistFlushInterval: 5,
+    persistBatchCap: 500,
+    autoBackupMinSizeKb: 100,
     autoBackupMaxFiles: 10,
 
     // ==================== CACHES ====================
-    stateCacheTTL: 150,             // ms de vida del cache de getState
-    metricsCacheTTL: 5000,          // ms de vida del cache de counts
-    columnCacheTTL: 3600000,        // ms de vida del cache de columnas SQLite
-    historicalCacheTTL: 300000,     // ms para consultas históricas
+    stateCacheTTL: 150,
+    metricsCacheTTL: 5000,
+    columnCacheTTL: 3600000,
+    historicalCacheTTL: 300000,
 
     // ==================== FISIOLOGÍA ====================
     homeostasisRate: 0.05,
@@ -32,26 +32,14 @@ export const TUNING = {
     // ==================== CIRCADIANO ====================
     circadian: {
         msPerDay: 86400000,
-        useLocalTime: true,         // si true, usa hora local; false = UTC
-        timezone: null              // null = local del sistema; o ej "Europe/Madrid"
+        useLocalTime: true,
+        timezone: null
     },
 
     // ==================== ALERTAS ====================
     alerts: {
-        critical: {
-            oxygen: 15,
-            energy: 10,
-            cortisol: 85,
-            toxicity: 85,
-            stability: 20
-        },
-        warning: {
-            oxygen: 25,
-            energy: 20,
-            cortisol: 70,
-            toxicity: 70,
-            stability: 50
-        }
+        critical: { oxygen: 15, energy: 10, cortisol: 85, toxicity: 85, stability: 20 },
+        warning: { oxygen: 25, energy: 20, cortisol: 70, toxicity: 70, stability: 50 }
     },
 
     // ==================== RATE LIMITING ====================
@@ -62,32 +50,22 @@ export const TUNING = {
     },
 
     // ==================== CHAT ====================
+    // V4.3: mensajes y respuestas hasta 10000 caracteres.
     chat: {
-        bodyLimit: '100kb',
-        maxMessageLength: 2000,
-        fetchTimeoutMs: 20000,
+        bodyLimit: '200kb',            // 10000 chars * ~10 bytes para UTF-8 con margen
+        maxMessageLength: 10000,        // entrada del usuario
+        maxResponseChars: 10000,        // salida del cerebro (post-proceso)
+        maxResponseTokens: 2600,        // ~10000 chars / 4 en español
+        fetchTimeoutMs: 60000,          // LLM Cloud puede tardar con respuestas largas
         stateTimeoutMs: 8000
     },
 
     // ==================== REGIONES CEREBRALES ====================
-    // Fuente única de verdad para /api/state y /api/chat.
-    // Cada entrada describe cómo derivar una región a partir de módulos.
-    //
-    // FIX V4.2.1:
-    //  - temporal: `divisor` movido DENTRO de `memory` para que
-    //    computeRegion() realmente lo lea y normalice la suma.
-    //  - boost ampliado para cubrir TODOS los tipos devueltos por
-    //    intentToRegion (antes la mitad de los intents no activaban nada).
     regions: {
         frontal: {
             label: 'Frontal · Decisión',
             weights: { cognitive: ['razonamiento', 'tomaDecisiones', 'planificacion'], divisor: 300 },
-            boost: {
-                decision: 0.35,
-                filosofia: 0.35,
-                trabajo: 0.20,
-                consejo: 0.25
-            }
+            boost: { decision: 0.35, filosofia: 0.35, trabajo: 0.20, consejo: 0.25 }
         },
         parietal: {
             label: 'Parietal · Atención',
@@ -100,7 +78,6 @@ export const TUNING = {
                 memory: {
                     episodica: { field: 'episodica', scale: 1500 },
                     semantica: { field: 'semantic', scale: 400 },
-                    // divisor DENTRO de memory → computeRegion lo lee como subDivisor
                     divisor: 2
                 }
             },
@@ -110,13 +87,8 @@ export const TUNING = {
             label: 'Límbico · Emoción',
             weights: { emotional: ['alegria', 'miedo', 'ira', 'confianza'], divisor: 400 },
             boost: {
-                peligro: 0.30,
-                miedo: 0.30,
-                alegria: 0.20,
-                tristeza: 0.25,
-                ira: 0.25,
-                ansiedad: 0.30,
-                ayuda: 0.20
+                peligro: 0.30, miedo: 0.30, alegria: 0.20,
+                tristeza: 0.25, ira: 0.25, ansiedad: 0.30, ayuda: 0.20
             }
         },
         occipital: {
@@ -128,10 +100,7 @@ export const TUNING = {
         brainstem: {
             label: 'Tallo · Homeostasis',
             weights: { biochemical: ['oxigeno', 'energia'], divisor: 200 },
-            boost: {
-                cansancio: 0.20,
-                salud: 0.20
-            }
+            boost: { cansancio: 0.20, salud: 0.20 }
         },
         cerebellum: {
             label: 'Cerebelo · Motor',
@@ -141,56 +110,44 @@ export const TUNING = {
     },
 
     // ==================== MAPEO INTENT → REGIÓN ====================
-    // Fuente única de verdad. server.js consulta este mapa para saber qué
-    // "tipo de análisis" pasarle a computeActivatedRegions().
-    // Cada valor DEBE existir como clave en regions.*.boost.
     intentToRegion: {
-        // --- Sociales ---
-        saludo: 'social',
-        despedida: 'social',
-        agradecimiento: 'social',
-        disculpa: 'social',
-
-        // --- Preguntas sobre el cerebro ---
-        pregunta_estado: 'general',
-        pregunta_identidad: 'general',
-        pregunta_capacidad: 'general',
-        pregunta_opinion: 'filosofia',
-        pregunta_generica: 'general',
-
-        // --- Estados emocionales ---
-        expresion_tristeza: 'tristeza',
-        expresion_ansiedad: 'ansiedad',
-        expresion_ira: 'ira',
-        expresion_alegria: 'alegria',
-        expresion_cansancio: 'cansancio',
-        expresion_confusion: 'general',
-
-        // --- Solicitudes ---
-        solicitud_ayuda: 'ayuda',
-        solicitud_consejo: 'consejo',
-        peticion_escucha: 'general',
-
-        // --- Temas ---
-        tema_relaciones: 'social',
-        tema_trabajo: 'trabajo',
-        tema_estudio: 'general',
-        tema_salud: 'salud',
-        tema_muerte: 'filosofia',
-
-        // --- Filosofía / profundas ---
-        filosofia: 'filosofia',
-        decision: 'decision',
-
-        // --- Peligro / urgente ---
-        peligro: 'peligro',
-
-        // --- Fallback ---
+        saludo: 'social', despedida: 'social', agradecimiento: 'social', disculpa: 'social',
+        pregunta_estado: 'general', pregunta_identidad: 'general',
+        pregunta_capacidad: 'general', pregunta_opinion: 'filosofia', pregunta_generica: 'general',
+        pregunta_aprendizaje: 'filosofia',
+        expresion_tristeza: 'tristeza', expresion_ansiedad: 'ansiedad',
+        expresion_ira: 'ira', expresion_alegria: 'alegria',
+        expresion_cansancio: 'cansancio', expresion_confusion: 'general',
+        solicitud_ayuda: 'ayuda', solicitud_consejo: 'consejo', peticion_escucha: 'general',
+        tema_relaciones: 'social', tema_trabajo: 'trabajo',
+        tema_estudio: 'general', tema_salud: 'salud', tema_muerte: 'filosofia',
+        filosofia: 'filosofia', decision: 'decision', peligro: 'peligro',
         charla: 'general'
     },
 
+    // ==================== INTENT → SITUACIÓN BIOLÓGICA ====================
+    // Cuando llega un mensaje con este intent, se aplica esta situación al
+    // cuerpo (bioquímica + emoción + cognición). Así el cerebro reacciona
+    // de verdad a lo que se habla.
+    intentToSituation: {
+        expresion_tristeza: { tipo: 'tristeza', intensidad: 0.7 },
+        expresion_ansiedad: { tipo: 'estres_alto', intensidad: 0.7 },
+        expresion_ira: { tipo: 'ira', intensidad: 0.7 },
+        expresion_alegria: { tipo: 'alegria', intensidad: 0.8 },
+        expresion_cansancio: { tipo: 'fatiga', intensidad: 0.6 },
+        expresion_confusion: { tipo: 'estres_alto', intensidad: 0.4 },
+        solicitud_ayuda: { tipo: 'amenaza', intensidad: 0.5 },
+        peligro: { tipo: 'amenaza', intensidad: 0.9 },
+        agradecimiento: { tipo: 'recompensa', intensidad: 0.5 },
+        logro: { tipo: 'logro', intensidad: 0.7 },
+        filosofia: { tipo: 'insight', intensidad: 0.4 },
+        decision: { tipo: 'desafio', intensidad: 0.3 },
+        tema_muerte: { tipo: 'nostalgia', intensidad: 0.5 },
+        tema_relaciones: { tipo: 'interaccion_social', intensidad: 0.4 },
+        saludo: { tipo: 'interaccion_social', intensidad: 0.3 }
+    },
+
     // ==================== SITUACIONES ====================
-    // Intensidad por defecto cuando /api/situation no la especifica.
     situations: {
         defaultIntensity: 1.0,
         maxIntensity: 2.0,
@@ -199,23 +156,20 @@ export const TUNING = {
 
     // ==================== LÍMITES DE ENTRADA ====================
     limits: {
-        maxQueryLength: 500,
+        maxQueryLength: 10000,
         maxLimitParam: 1000,
-        defaultHistoryLimit: 50,
-        defaultFeedLimit: 30
+        defaultHistoryLimit: 200,
+        defaultFeedLimit: 30,
+        maxConversationHistory: 500
     },
 
     // ==================== VALIDACIÓN ====================
     validation: {
-        // Si NODE_ENV=production y no hay ADMIN_TOKEN, se rechaza el arranque.
         requireAdminTokenInProduction: true,
-        // Si NODE_ENV=production y CORS_ORIGIN vacío, se bloquea cross-origin
-        // (same-origin sigue funcionando). Ver server.js para el detalle.
         requireCorsOriginInProduction: false
     }
 };
 
-// Congelar en desarrollo para detectar mutaciones accidentales
 if (process.env.NODE_ENV !== 'production') {
     const deepFreeze = (obj) => {
         Object.keys(obj).forEach(k => {
